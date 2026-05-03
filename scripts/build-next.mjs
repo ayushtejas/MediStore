@@ -6,8 +6,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const nextBin = process.platform === "win32"
   ? path.join(root, "node_modules", ".bin", "next.cmd")
   : path.join(root, "node_modules", ".bin", "next")
+const command = process.platform === "win32" ? "cmd.exe" : nextBin
+const args = process.platform === "win32" ? ["/d", "/s", "/c", nextBin, "build"] : ["build"]
 
-const child = spawn(nextBin, ["build"], {
+const child = spawn(command, args, {
   cwd: root,
   stdio: "inherit",
   windowsHide: true,
