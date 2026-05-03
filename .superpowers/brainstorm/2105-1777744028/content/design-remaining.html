@@ -1,0 +1,142 @@
+<h2>Design: Auth, Data Models & API</h2>
+<p class="subtitle">Sections 2–4 — Review and confirm before we write the spec</p>
+
+<!-- AUTH FLOW -->
+<div class="section">
+  <h3>Section 2 — Auth Flow</h3>
+  <div class="mockup">
+    <div class="mockup-header">NextAuth.js + FastAPI JWT</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:12px;line-height:2">
+      <strong>Login (Staff/Admin):</strong><br>
+      1. POST /api/auth/signin → NextAuth Credentials provider<br>
+      2. NextAuth calls FastAPI <code>POST /auth/login</code> with email+password<br>
+      3. FastAPI verifies, returns <code>access_token</code> (JWT) + role<br>
+      4. NextAuth stores token in encrypted session cookie<br>
+      5. Subsequent requests: BFF proxy reads session, attaches Bearer token → FastAPI<br><br>
+      <strong>Login (Customer):</strong><br>
+      Same flow via NextAuth Credentials — role = "customer"<br><br>
+      <strong>Roles:</strong> &nbsp;<code>admin</code> &nbsp;<code>staff</code> &nbsp;<code>customer</code><br>
+      <strong>middleware.ts guards:</strong><br>
+      &nbsp;/admin/* → requires admin<br>
+      &nbsp;/pos/* → requires admin | staff<br>
+      &nbsp;/(shop)/orders → requires customer
+    </div>
+  </div>
+</div>
+
+<!-- DATA MODELS -->
+<div class="section">
+  <h3>Section 3 — Core Data Models (PostgreSQL)</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+
+    <div class="mockup">
+      <div class="mockup-header">Inventory</div>
+      <div class="mockup-body" style="font-size:12px;line-height:1.8;font-family:monospace">
+        <strong>Medicine</strong><br>
+        id, name, composition<br>
+        brand, category<br>
+        prescription_required<br><br>
+        <strong>Inventory (batch)</strong><br>
+        id, medicine_id (FK)<br>
+        batch_number, expiry_date<br>
+        cost_price, selling_price<br>
+        quantity_available<br>
+        supplier_id (FK)<br><br>
+        <strong>Supplier</strong><br>
+        id, name, contact, email
+      </div>
+    </div>
+
+    <div class="mockup">
+      <div class="mockup-header">Orders</div>
+      <div class="mockup-body" style="font-size:12px;line-height:1.8;font-family:monospace">
+        <strong>Order</strong><br>
+        id, type (offline/online)<br>
+        user_id (FK, nullable)<br>
+        total_amount, tax_amount<br>
+        status, created_at<br><br>
+        <strong>OrderItem</strong><br>
+        id, order_id (FK)<br>
+        medicine_id (FK)<br>
+        batch_id (FK)<br>
+        quantity, unit_price<br><br>
+        <strong>InventoryLog</strong><br>
+        id, inventory_id (FK)<br>
+        change_qty, reason<br>
+        order_id (FK), created_at
+      </div>
+    </div>
+
+    <div class="mockup">
+      <div class="mockup-header">E-commerce</div>
+      <div class="mockup-body" style="font-size:12px;line-height:1.8;font-family:monospace">
+        <strong>User</strong><br>
+        id, name, email, phone<br>
+        address, role, hashed_pw<br><br>
+        <strong>CartItem</strong><br>
+        id, user_id (FK)<br>
+        medicine_id (FK)<br>
+        quantity<br><br>
+        <strong>OnlineOrder</strong><br>
+        extends Order +<br>
+        payment_status<br>
+        razorpay_order_id<br>
+        delivery_address<br>
+        prescription_url
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- API DESIGN -->
+<div class="section">
+  <h3>Section 4 — Key API Endpoints (FastAPI)</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="mockup">
+      <div class="mockup-header">Inventory + Auth</div>
+      <div class="mockup-body" style="font-size:12px;line-height:1.9;font-family:monospace">
+        POST &nbsp;<code>/auth/login</code><br>
+        GET &nbsp;&nbsp;<code>/medicines</code> &nbsp;<span style="color:#6b7280">search+filter</span><br>
+        POST &nbsp;<code>/medicines</code> &nbsp;<span style="color:#6b7280">admin</span><br>
+        GET &nbsp;&nbsp;<code>/medicines/{id}</code><br>
+        PATCH <code>/medicines/{id}</code><br>
+        POST &nbsp;<code>/inventory/add</code><br>
+        PATCH <code>/inventory/{id}</code><br>
+        GET &nbsp;&nbsp;<code>/inventory/alerts</code> &nbsp;<span style="color:#6b7280">low+expiry</span><br>
+        GET &nbsp;&nbsp;<code>/suppliers</code><br>
+        POST &nbsp;<code>/suppliers</code>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Orders + Payments</div>
+      <div class="mockup-body" style="font-size:12px;line-height:1.9;font-family:monospace">
+        POST &nbsp;<code>/orders</code> &nbsp;<span style="color:#6b7280">create (offline/online)</span><br>
+        POST &nbsp;<code>/orders/{id}/items</code><br>
+        POST &nbsp;<code>/orders/{id}/complete</code><br>
+        GET &nbsp;&nbsp;<code>/orders</code> &nbsp;<span style="color:#6b7280">admin list</span><br>
+        PATCH <code>/orders/{id}/status</code><br>
+        GET &nbsp;&nbsp;<code>/cart</code><br>
+        POST &nbsp;<code>/cart/items</code><br>
+        DELETE <code>/cart/items/{id}</code><br>
+        POST &nbsp;<code>/payments/create</code> &nbsp;<span style="color:#6b7280">Razorpay</span><br>
+        POST &nbsp;<code>/payments/verify</code>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TECH NOTES -->
+<div class="section" style="padding:16px;background:var(--card-bg,#f8f9fa);border-radius:8px">
+  <p class="label">Section 5 — Cross-cutting concerns</p>
+  <ul style="margin:8px 0;padding-left:20px;line-height:1.9;font-size:13px">
+    <li><strong>ORM:</strong> SQLAlchemy 2.x (async) + Alembic for migrations</li>
+    <li><strong>Validation:</strong> Pydantic v2 schemas on all request/response bodies</li>
+    <li><strong>Inventory sync:</strong> All stock deductions run inside a DB transaction with row-level locking (<code>SELECT FOR UPDATE</code>) — prevents overselling</li>
+    <li><strong>FIFO:</strong> <code>GET /orders/{id}/items</code> auto-selects oldest non-expired batch first</li>
+    <li><strong>Background jobs:</strong> FastAPI <code>APScheduler</code> for daily expiry + low-stock alerts</li>
+    <li><strong>Docker Compose:</strong> postgres:16, redis:7, fastapi service — single <code>docker compose up</code></li>
+    <li><strong>Testing:</strong> pytest + httpx for FastAPI; Jest + React Testing Library for Next.js components</li>
+  </ul>
+</div>
+
+<p style="margin-top:20px;text-align:center;color:#6b7280">Does everything here look right? Confirm in terminal and we'll write the spec doc.</p>

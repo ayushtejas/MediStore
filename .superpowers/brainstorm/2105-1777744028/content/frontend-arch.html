@@ -1,0 +1,33 @@
+<h2>Frontend Architecture</h2>
+<p class="subtitle">How should the Next.js app(s) be structured?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Single Next.js App</h3>
+      <p>One repo, one deployment. Admin panel, POS, and customer storefront all live under separate route groups: <code>/admin/*</code>, <code>/pos/*</code>, <code>/(shop)/*</code>. Role-based middleware controls access. Shared UI components, one build pipeline.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>One codebase to maintain</li><li>Shared auth + component library</li><li>Simpler deployment</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Bundle size if not code-split carefully</li><li>Admin and customer code in same repo</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Two Next.js Apps</h3>
+      <p>Separate apps: <strong>admin-app</strong> (staff + POS + inventory) and <strong>customer-app</strong> (storefront + orders). Each deployed independently. Can share a component library as an npm package.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Clean separation of concerns</li><li>Independent deployments and scaling</li><li>Different teams can own each app</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Two repos / two pipelines to manage</li><li>Shared code needs an npm package or monorepo</li><li>More setup overhead</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;padding:16px;background:var(--card-bg,#f8f9fa);border-radius:8px;border-left:3px solid #4f8ef7">
+  <p class="label">Recommendation</p>
+  <p>Option A is the pragmatic choice for MVP — one codebase, faster to build, easy to split later if needed. Next.js route groups keep admin and customer routes cleanly separated at zero extra cost.</p>
+</div>

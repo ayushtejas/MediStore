@@ -1,0 +1,45 @@
+<h2>UI Component Library</h2>
+<p class="subtitle">Which foundation should we build the Next.js frontend on?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>shadcn/ui + Tailwind CSS</h3>
+      <p>Copy-paste components (not a package dependency). Fully customisable, Tailwind-based, excellent DX. Industry standard for modern Next.js apps. Radix UI primitives underneath for accessibility.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Own the code — no library lock-in</li><li>Beautiful out of the box</li><li>Best Next.js App Router support</li><li>Huge ecosystem and community</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Need to compose data tables, forms yourself</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Ant Design (antd)</h3>
+      <p>Enterprise-grade component library with a comprehensive set of pre-built components — data tables, forms, date pickers, layout. Popular for admin panels and dashboards in India/Asia.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Rich data table + form components</li><li>Admin-ready out of the box</li><li>Less layout work for POS/dashboard</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Large bundle size</li><li>Less flexible to customise</li><li>Older design aesthetic</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Chakra UI</h3>
+      <p>Accessible, composable React component library. Simpler theming model than shadcn, easier learning curve. Good for teams that want consistency without much setup.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Easy theming + dark mode</li><li>Good accessibility defaults</li><li>Gentle learning curve</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Smaller ecosystem than shadcn</li><li>App Router support requires extra config</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;padding:16px;background:var(--card-bg,#f8f9fa);border-radius:8px;border-left:3px solid #4f8ef7">
+  <p class="label">Recommendation</p>
+  <p><strong>A — shadcn/ui + Tailwind</strong> is the best fit for this project. The medical UI folder name suggests a polished look is a priority, and shadcn gives you full control over every pixel while shipping fast. For the data-heavy admin panel, we'll add <strong>TanStack Table</strong> on top for the POS and inventory tables.</p>
+</div>

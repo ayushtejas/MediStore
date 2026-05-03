@@ -1,0 +1,55 @@
+<h2>Architecture Approaches</h2>
+<p class="subtitle">How should the Next.js frontend talk to the FastAPI backend?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Server Components + Server Actions (Pure RSC)</h3>
+      <p>All data fetching happens in Next.js Server Components. Mutations use Server Actions. Zero client-side API calls — the Next.js server talks to FastAPI from the server layer.</p>
+      <div style="background:#f1f5f9;padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px;font-family:monospace">
+        Browser → Next.js Server (RSC) → FastAPI → Postgres
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>No API keys exposed to browser</li><li>Great SEO for storefront</li><li>Less client JS</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>POS needs real-time feel — RSC re-renders feel sluggish for cart interactions</li><li>Optimistic UI is hard</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>React Query + REST API (Client-side)</h3>
+      <p>All data fetched client-side via TanStack Query hitting FastAPI directly. Optimistic updates, caching, and loading states built-in. Great for POS and admin dashboards.</p>
+      <div style="background:#f1f5f9;padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px;font-family:monospace">
+        Browser → FastAPI (direct) → Postgres
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Snappy POS interactions</li><li>Optimistic cart updates</li><li>Familiar REST pattern</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>CORS setup required</li><li>No SSR for storefront (SEO suffers)</li><li>JWT in browser</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — RSC for storefront, React Query for interactive panels ⭐</h3>
+      <p>Server Components + server-side fetch for the customer storefront (SEO-critical). React Query for POS terminal and admin dashboard (interactivity-critical). Next.js API routes act as a thin BFF proxy for the client-facing calls.</p>
+      <div style="background:#f1f5f9;padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13px;font-family:monospace">
+        Storefront: Browser → RSC → FastAPI<br/>
+        POS/Admin: Browser → /api/* (BFF) → FastAPI
+      </div>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Best SEO for customer pages</li><li>Snappy POS + admin interactions</li><li>FastAPI never directly exposed to browser</li><li>Each section uses the right tool</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Two data-fetching patterns to learn</li><li>Slightly more initial setup</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;padding:16px;background:var(--card-bg,#f8f9fa);border-radius:8px;border-left:3px solid #22c55e">
+  <p class="label">My Recommendation: C</p>
+  <p>The hybrid approach matches the nature of each section — the customer storefront needs SEO (RSC wins), the POS terminal needs snappy interactions (React Query wins). The Next.js BFF proxy keeps FastAPI off the public internet entirely.</p>
+</div>

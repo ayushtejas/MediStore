@@ -1,0 +1,80 @@
+<h2>Design: Project Structure</h2>
+<p class="subtitle">Section 1 of 5 — Folder layout for frontend and backend</p>
+
+<div class="split" style="gap:20px;align-items:flex-start">
+
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">modern_medical_ui/ &nbsp;(Next.js frontend)</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.8">
+      <span style="color:#6b7280">├──</span> <strong>app/</strong><br>
+      <span style="color:#6b7280">│ ├──</span> <strong>(shop)/</strong> &nbsp;<span style="color:#6b7280">← customer storefront (RSC)</span><br>
+      <span style="color:#6b7280">│ │ ├──</span> page.tsx &nbsp;<span style="color:#6b7280">← homepage</span><br>
+      <span style="color:#6b7280">│ │ ├──</span> medicines/[id]/page.tsx<br>
+      <span style="color:#6b7280">│ │ ├──</span> cart/page.tsx<br>
+      <span style="color:#6b7280">│ │ └──</span> orders/page.tsx<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>admin/</strong> &nbsp;<span style="color:#6b7280">← admin panel (React Query)</span><br>
+      <span style="color:#6b7280">│ │ ├──</span> dashboard/page.tsx<br>
+      <span style="color:#6b7280">│ │ ├──</span> inventory/page.tsx<br>
+      <span style="color:#6b7280">│ │ ├──</span> orders/page.tsx<br>
+      <span style="color:#6b7280">│ │ └──</span> suppliers/page.tsx<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>pos/</strong> &nbsp;<span style="color:#6b7280">← POS terminal (React Query)</span><br>
+      <span style="color:#6b7280">│ │ └──</span> page.tsx<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>api/</strong> &nbsp;<span style="color:#6b7280">← BFF proxy + NextAuth</span><br>
+      <span style="color:#6b7280">│ │ ├──</span> auth/[...nextauth]/route.ts<br>
+      <span style="color:#6b7280">│ │ └──</span> [...proxy]/route.ts<br>
+      <span style="color:#6b7280">│ └──</span> layout.tsx<br>
+      <span style="color:#6b7280">├──</span> <strong>components/</strong><br>
+      <span style="color:#6b7280">│ ├──</span> ui/ &nbsp;<span style="color:#6b7280">← shadcn generated</span><br>
+      <span style="color:#6b7280">│ ├──</span> shop/<br>
+      <span style="color:#6b7280">│ ├──</span> admin/<br>
+      <span style="color:#6b7280">│ └──</span> pos/<br>
+      <span style="color:#6b7280">├──</span> <strong>lib/</strong><br>
+      <span style="color:#6b7280">│ ├──</span> auth.ts &nbsp;<span style="color:#6b7280">← NextAuth config</span><br>
+      <span style="color:#6b7280">│ ├──</span> api-client.ts &nbsp;<span style="color:#6b7280">← fetch wrapper</span><br>
+      <span style="color:#6b7280">│ └──</span> query-client.ts<br>
+      <span style="color:#6b7280">├──</span> middleware.ts &nbsp;<span style="color:#6b7280">← route protection</span><br>
+      <span style="color:#6b7280">├──</span> .env.local<br>
+      <span style="color:#6b7280">└──</span> <strong>modern_medical_backend/</strong> &nbsp;<span style="color:#6b7280">← FastAPI (own repo)</span>
+    </div>
+  </div>
+
+  <div class="mockup" style="flex:1">
+    <div class="mockup-header">modern_medical_backend/ &nbsp;(FastAPI)</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:13px;line-height:1.8">
+      <span style="color:#6b7280">├──</span> <strong>app/</strong><br>
+      <span style="color:#6b7280">│ ├──</span> main.py<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>core/</strong><br>
+      <span style="color:#6b7280">│ │ ├──</span> config.py &nbsp;<span style="color:#6b7280">← settings (pydantic)</span><br>
+      <span style="color:#6b7280">│ │ ├──</span> database.py &nbsp;<span style="color:#6b7280">← SQLAlchemy session</span><br>
+      <span style="color:#6b7280">│ │ └──</span> security.py &nbsp;<span style="color:#6b7280">← JWT verify</span><br>
+      <span style="color:#6b7280">│ ├──</span> <strong>inventory/</strong><br>
+      <span style="color:#6b7280">│ │ ├──</span> models.py<br>
+      <span style="color:#6b7280">│ │ ├──</span> schemas.py<br>
+      <span style="color:#6b7280">│ │ ├──</span> router.py<br>
+      <span style="color:#6b7280">│ │ └──</span> service.py<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>orders/</strong> &nbsp;<span style="color:#6b7280">← billing + online orders</span><br>
+      <span style="color:#6b7280">│ │ └──</span> ... (same pattern)<br>
+      <span style="color:#6b7280">│ ├──</span> <strong>auth/</strong><br>
+      <span style="color:#6b7280">│ ├──</span> <strong>users/</strong><br>
+      <span style="color:#6b7280">│ └──</span> <strong>payments/</strong><br>
+      <span style="color:#6b7280">├──</span> <strong>migrations/</strong> &nbsp;<span style="color:#6b7280">← Alembic</span><br>
+      <span style="color:#6b7280">├──</span> docker-compose.yml<br>
+      <span style="color:#6b7280">├──</span> Dockerfile<br>
+      <span style="color:#6b7280">├──</span> requirements.txt<br>
+      <span style="color:#6b7280">└──</span> .env
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:20px;padding:16px;background:var(--card-bg,#f8f9fa);border-radius:8px">
+  <p class="label">Key decisions captured here</p>
+  <ul style="margin:8px 0;padding-left:20px;line-height:1.8">
+    <li>FastAPI uses <strong>domain modules</strong> (inventory, orders, auth, users, payments) — each with its own models/schemas/router/service. Clean, portable when extracted to its own repo.</li>
+    <li>Next.js <strong>route groups</strong> <code>(shop)</code>, <code>admin</code>, <code>pos</code> isolate concerns without affecting the URL structure.</li>
+    <li><code>middleware.ts</code> enforces auth at the edge — unauthenticated users are redirected before any page renders.</li>
+    <li>The <code>api/[...proxy]</code> BFF route forwards requests from React Query to FastAPI, attaching the JWT server-side so FastAPI never sees browser requests directly.</li>
+  </ul>
+</div>
+
+<p style="margin-top:20px;text-align:center;color:#6b7280">Does this structure look right? Reply in terminal.</p>
