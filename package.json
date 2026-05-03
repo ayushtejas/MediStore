@@ -15,7 +15,8 @@
     "desktop:dev": "electron .",
     "desktop:prepare": "node scripts/prepare-electron-next.mjs",
     "desktop:package": "npm run build && npm run desktop:prepare && electron-forge package",
-    "desktop:make": "npm run build && npm run desktop:prepare && electron-forge make"
+    "desktop:check": "node scripts/check-squirrel-vendor.mjs",
+    "desktop:make": "npm run build && npm run desktop:prepare && npm run desktop:check && electron-forge make"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.6.0",
