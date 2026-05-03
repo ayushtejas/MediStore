@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev-offline.mjs",
     "dev:web": "next dev",
-    "build": "next build",
+    "build": "node scripts/build-next.mjs",
     "start": "next start",
     "lint": "next lint",
     "desktop:dev": "electron .",
