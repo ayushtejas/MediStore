@@ -91,7 +91,7 @@ cd modern_medical_backend
 py -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\pip install -r requirements.txt pyinstaller
-.\.venv\Scripts\pyinstaller --name medstore-api --onefile --collect-all app --collect-all alembic desktop_entry.py
+.\.venv\Scripts\pyinstaller --name medstore-api --onefile --paths . --collect-all app --collect-all alembic desktop_entry.py
 New-Item -ItemType Directory -Force ..\desktop-dist\backend
 Copy-Item .\dist\medstore-api.exe ..\desktop-dist\backend\medstore-api.exe -Force
 cd ..
