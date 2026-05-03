@@ -26,9 +26,12 @@ Remove-Item -Force .\medstore-api.spec -ErrorAction SilentlyContinue
   --collect-all cryptography `
   --collect-all jose `
   --collect-all bcrypt `
+  --collect-all greenlet `
   --hidden-import aiosqlite `
   --hidden-import sqlalchemy.dialects.sqlite.aiosqlite `
   --hidden-import passlib.handlers.bcrypt `
+  --hidden-import greenlet `
+  --hidden-import _greenlet `
   --hidden-import email_validator `
   --hidden-import pydantic_settings `
   --hidden-import multipart `
