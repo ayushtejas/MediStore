@@ -66,7 +66,7 @@ def test_invoice_html_uses_print_stable_report_layout():
 
     assert "<colgroup>" in html
     assert "GST %" in html
-    assert "PHARMACY TAX INVOICE" in html
+    assert "PHARMACY TAX BILL" in html
     assert "display: flex" not in html
     assert "display: grid" not in html
 
@@ -103,14 +103,52 @@ def test_fallback_invoice_pdf_registers_bold_font_resource():
     assert b"/F2 6 0 R" in pdf
     assert b"/Helvetica-Bold" in pdf
     assert b"PHARMACY TAX INVOICE" not in pdf
-    assert b"TAX INVOICE" in pdf
+    assert b"PHARMACY TAX BILL" in pdf
+
+
+def test_fallback_invoice_pdf_keeps_due_reminders_internal():
+    order = SimpleNamespace(
+        id=uuid.uuid4(),
+        type=OrderType.offline,
+        status=OrderStatus.confirmed,
+        customer_name="Due Customer",
+        customer_phone="+91 99999 00000",
+        customer_address="Market Road",
+        doctor_name=None,
+        doctor_registration=None,
+        prescription_notes=None,
+        payment_method="cash",
+        payment_status="due",
+        amount_paid=Decimal("0.00"),
+        due_amount=Decimal("112.00"),
+        due_reminder_at="2026-05-04 09:18:00",
+        total_amount=Decimal("100.00"),
+        tax_amount=Decimal("12.00"),
+        bill_discount_amount=Decimal("0.00"),
+        created_at=date.today(),
+        online_order=None,
+    )
+    item = SimpleNamespace(quantity=1, unit_price=Decimal("100.00"))
+    medicine = SimpleNamespace(
+        name="Paracetamol 650",
+        composition="Paracetamol IP 650mg",
+        brand="Calpol",
+        category="Fever & Pain",
+        gst_rate=Decimal("12.00"),
+    )
+
+    pdf = _fallback_invoice_pdf(order, [(item, medicine)])
+
+    assert b"Status: DUE" in pdf
+    assert b"Reminder:" not in pdf
+    assert b"2026-05-04 09:18:00" not in pdf
 
 
 def test_pdf_text_trimming_keeps_values_inside_column_width():
-    fitted = _pdf_trim_to_width("PHARMACY TAX INVOICE", 15, 85, "F2")
+    fitted = _pdf_trim_to_width("PHARMACY TAX BILL", 15, 85, "F2")
 
     assert fitted.endswith("...")
-    assert fitted != "PHARMACY TAX INVOICE"
+    assert fitted != "PHARMACY TAX BILL"
 
 
 def test_fallback_invoice_pdf_text_stays_inside_page_bounds():

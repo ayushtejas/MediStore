@@ -71,6 +71,19 @@ export async function clientFetch<T>(path: string, options?: RequestInit): Promi
   return parseJsonResponse<T>(res)
 }
 
+export async function publicFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers)
+  if (options?.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  })
+  if (!res.ok) return parseError(res)
+  return parseJsonResponse<T>(res)
+}
+
 export async function openBackendFile(path: string) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: await authHeaders(),

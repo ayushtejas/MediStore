@@ -4,7 +4,7 @@ from sqlalchemy import select
 from ..core.database import get_db
 from ..core.security import hash_password, require_role
 from .models import User
-from .schemas import UserCreate, UserOut
+from .schemas import UserCreate, UserOut, UserPatch
 import uuid
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -56,4 +56,35 @@ async def get_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@router.patch("/{user_id}", response_model=UserOut)
+async def update_user(
+    user_id: uuid.UUID,
+    body: UserPatch,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_role("admin")),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.email and body.email != user.email:
+        existing = await db.execute(select(User).where(User.email == body.email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = body.email
+    if body.name is not None:
+        user.name = body.name
+    if body.phone is not None:
+        user.phone = body.phone
+    if body.role is not None:
+        user.role = body.role
+    if body.password:
+        user.hashed_pw = hash_password(body.password)
+
+    await db.commit()
+    await db.refresh(user)
     return user

@@ -15,7 +15,6 @@ import {
   Minus,
   Package2,
   Plus,
-  ReceiptText,
   Repeat2,
   Search,
   Trash2,
@@ -28,6 +27,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
+import {
+  FALLBACK_STORE_PROFILE,
+  storeInitials,
+  usePublicStoreProfile,
+  useSyncedDocumentTitle,
+} from "@/components/store/StoreBrand"
 
 interface Medicine {
   id: string
@@ -112,6 +117,9 @@ const PAYMENT_STATUS_OPTIONS: { label: string; value: PaymentStatus; help: strin
 export default function POSPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const profileQuery = usePublicStoreProfile()
+  const profile = profileQuery.data || FALLBACK_STORE_PROFILE
+  useSyncedDocumentTitle(`${profile.app_name} POS`)
   const [operatorRole, setOperatorRole] = useState<string | null>(null)
 
   const [search, setSearch] = useState("")
@@ -394,11 +402,11 @@ export default function POSPage() {
         <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-3 px-4 py-3 lg:px-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
-              <ReceiptText className="h-5 w-5" />
+              <span className="text-sm font-black">{storeInitials(profile.app_name)}</span>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-700">
-                Counter Desk
+                {profile.app_name}
               </p>
               <h1 className="text-lg font-black tracking-tight text-slate-950">
                 POS Billing
@@ -931,10 +939,10 @@ export default function POSPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <History className="h-4 w-4" />
-                    Past Bill Reports
+                    Past Bills
                   </CardTitle>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Re-open counter bills and download the PDF report again.
+                    Re-open counter bills and download the PDF bill again.
                   </p>
                 </div>
                 <Badge variant="secondary">{recentOrders.length}</Badge>

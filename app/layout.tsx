@@ -3,9 +3,10 @@ import "./globals.css"
 import { QueryProvider } from "@/lib/query-client"
 import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "@/components/theme-provider"
+import { LicenceActivationGate } from "@/components/licence/LicenceActivationGate"
 
 export const metadata: Metadata = {
-  title: "MedStore",
+  title: "Pharmacy Billing",
   description: "Medical Store Management System",
 }
 
@@ -20,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           <QueryProvider>
-            {children}
+            <LicenceActivationGate>{children}</LicenceActivationGate>
             <Toaster />
           </QueryProvider>
         </ThemeProvider>

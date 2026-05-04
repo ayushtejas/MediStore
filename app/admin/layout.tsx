@@ -1,9 +1,9 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { BellRing, LayoutDashboard, Package, ShoppingCart, Truck, Sparkles } from "lucide-react"
-import { ThemeToggle } from "@/components/theme-toggle"
+import { BellRing, LayoutDashboard, Package, Settings, ShoppingCart, Truck } from "lucide-react"
 import { OperatorAccessPanel } from "@/components/auth/OperatorAccessPanel"
+import { AdminSidebarBrand } from "@/components/admin/AdminSidebarBrand"
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/khata", label: "Khata & Alerts", icon: BellRing },
   { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ]
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -22,26 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <aside className="flex h-screen w-72 shrink-0 flex-col overflow-hidden border-r border-border bg-card text-card-foreground shadow-sm">
         {/* Logo */}
         <div className="shrink-0 border-b border-border p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-700/20">
-                <span className="text-white text-sm font-bold">Rx</span>
-              </div>
-              <div>
-                <span className="font-semibold text-foreground">MedStore Admin</span>
-                <p className="text-xs text-muted-foreground">Pharmacy command centre</p>
-              </div>
-            </div>
-            <ThemeToggle />
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-border bg-muted/50 p-3 text-xs text-muted-foreground shadow-sm">
-            <div className="mb-1 flex items-center gap-2 font-semibold text-emerald-600 dark:text-emerald-400">
-              <Sparkles className="h-3.5 w-3.5" />
-              Live operations
-            </div>
-            Stock, billing and fulfilment are linked to the same inventory flow.
-          </div>
+          <AdminSidebarBrand />
         </div>
 
         {/* Nav */}

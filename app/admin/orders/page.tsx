@@ -256,14 +256,14 @@ export default function OrdersPage() {
       <div className="admin-hero mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="admin-eyebrow">
-            Past Bills & Reports
+            Past Bills
           </p>
           <h1 className="admin-title">
             Billing Archive
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
             View every POS bill, inspect the counter workflow, and re-download a polished
-            pharmacy report whenever a customer needs it again.
+            pharmacy bill whenever a customer needs it again.
           </p>
         </div>
         <div className="relative w-full lg:max-w-sm">
@@ -298,7 +298,7 @@ export default function OrdersPage() {
         <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-950">Order report archive</p>
+              <p className="text-sm font-semibold text-slate-950">Bill archive</p>
               <p className="text-xs text-muted-foreground">
                 Click any row to open the full bill snapshot and download the invoice again.
               </p>
@@ -433,7 +433,7 @@ export default function OrdersPage() {
                       }}
                     >
                       <Download className="mr-2 h-3.5 w-3.5" />
-                      Report
+                      Bill PDF
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -460,7 +460,7 @@ export default function OrdersPage() {
                     onClick={() => downloadInvoice(selectedOrder.id)}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Download report again
+                    Download bill again
                   </Button>
                 </DialogTitle>
                 <DialogDescription>
@@ -608,7 +608,7 @@ export default function OrdersPage() {
                 <div className="border-b border-emerald-100 p-4">
                   <p className="font-semibold text-slate-950">Medicines billed</p>
                   <p className="text-xs text-muted-foreground">
-                    Report-ready line items with quantity, GST and payable amount.
+                    Bill-ready line items with quantity, GST and payable amount.
                   </p>
                 </div>
                 <div className="overflow-x-auto">

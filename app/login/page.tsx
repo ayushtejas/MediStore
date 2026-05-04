@@ -12,6 +12,12 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card"
+import {
+  FALLBACK_STORE_PROFILE,
+  storeInitials,
+  usePublicStoreProfile,
+  useSyncedDocumentTitle,
+} from "@/components/store/StoreBrand"
 
 const DEMO_CREDENTIALS = [
   { role: "Admin", email: "admin@medstore.dev", password: "Admin@123" },
@@ -20,6 +26,9 @@ const DEMO_CREDENTIALS = [
 
 export default function LoginPage() {
   const router = useRouter()
+  const profileQuery = usePublicStoreProfile()
+  const profile = profileQuery.data || FALLBACK_STORE_PROFILE
+  useSyncedDocumentTitle(profile.app_name)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -55,13 +64,13 @@ export default function LoginPage() {
         <CardHeader className="space-y-1">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-white text-sm font-bold">M</span>
+              <span className="text-white text-sm font-bold">{storeInitials(profile.app_name)}</span>
             </div>
-            <span className="font-semibold text-lg">MedStore</span>
+            <span className="font-semibold text-lg">{profile.app_name}</span>
           </div>
           <CardTitle className="text-2xl">Sign in</CardTitle>
           <CardDescription>
-            Enter your admin or counter staff credentials to access the offline pharmacy system.
+            Enter your admin or counter staff credentials to access {profile.tagline.toLowerCase()}.
           </CardDescription>
         </CardHeader>
         <CardContent>

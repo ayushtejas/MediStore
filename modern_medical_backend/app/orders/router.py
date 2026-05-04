@@ -40,6 +40,7 @@ from .schemas import (
     CheckoutRequest,
 )
 from .service import complete_order, add_item_to_order, normalize_payment_fields
+from ..settings.service import get_store_profile
 
 router = APIRouter(tags=["orders"])
 
@@ -222,7 +223,12 @@ def _pretty_label(value) -> str:
     return _enum_value(value).replace("_", " ").title()
 
 
-def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
+def _profile_value(profile, field: str, fallback: str) -> str:
+    value = getattr(profile, field, None) if profile else None
+    return str(value or fallback)
+
+
+def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]], profile=None) -> str:
     payment = _enum_value(order.payment_method).upper()
     online = getattr(order, "online_order", None)
     online_payment_status = getattr(online, "payment_status", None)
@@ -248,6 +254,17 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
     generated_at = order.created_at.strftime("%d %b %Y, %I:%M %p")
     invoice_no = str(order.id)[:8].upper()
     grand_total = _money_decimal(order.total_amount) + _money_decimal(order.tax_amount) - _money_decimal(getattr(order, "bill_discount_amount", 0))
+    app_name = _profile_value(profile, "app_name", "MedStore")
+    bill_title = _profile_value(profile, "report_title", "Pharmacy Tax Bill")
+    tagline = _profile_value(profile, "tagline", "Pharmacy Billing & Retail Care")
+    address = _profile_value(profile, "address", "123 Health Avenue, Mumbai")
+    email = _profile_value(profile, "email", "support@medstore.local")
+    gstin = getattr(profile, "gstin", None) if profile else "27AAECM0000A1Z5"
+    drug_license = getattr(profile, "drug_license", None) if profile else "MH-MED-2026"
+    footer_note = _profile_value(profile, "footer_note", "Thank you for choosing MedStore.")
+    compliance = " · ".join(
+        part for part in (f"GSTIN: {gstin}" if gstin else "", f"DL No: {drug_license}" if drug_license else "") if part
+    )
 
     item_rows_parts: list[str] = []
     for item, medicine in rows:
@@ -422,12 +439,12 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
             <tr>
               <td>
                 <div class="brand-kicker">Care-first Pharmacy</div>
-                <div class="brand">MedStore</div>
-                <div class="brand-sub">123 Health Avenue, Mumbai · support@medstore.local</div>
-                <div class="brand-sub">GSTIN: 27AAECM0000A1Z5 · DL No: MH-MED-2026</div>
+                <div class="brand">{_safe(app_name)}</div>
+                <div class="brand-sub">{_safe(address)} · {_safe(email)}</div>
+                <div class="brand-sub">{_safe(compliance)}</div>
               </td>
               <td class="right">
-                <div class="invoice-title">PHARMACY TAX INVOICE</div>
+                <div class="invoice-title">{_safe(bill_title.upper())}</div>
                 <div class="invoice-meta">Invoice No. #{invoice_no}</div>
                 <div class="invoice-meta">Generated {generated_at}</div>
                 <div class="pill">{payment} · {payment_status.upper()}</div>
@@ -504,7 +521,7 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
               <tr>
                 <td class="care-note">
                   <div class="eyebrow">Pharmacy Note</div>
-                  This invoice is generated from the MedStore billing system. Please retain it
+                  This invoice is generated from the {_safe(app_name)} billing system. Please retain it
                   for medicine purchase records, prescription validation and return-policy
                   reference. Verify dosage and directions with the prescribing doctor.
                 </td>
@@ -546,7 +563,7 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
             <table>
               <tr>
                 <td>Computer generated invoice. No physical signature required.</td>
-                <td class="right">Thank you for choosing MedStore.</td>
+                <td class="right">{_safe(footer_note)}</td>
               </tr>
             </table>
           </div>
@@ -761,7 +778,7 @@ class _PdfCanvas:
             self.text(x, y - (index * line_gap), line, size=size, font=font, color=color)
 
 
-def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> bytes:
+def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]], profile=None) -> bytes:
     canvas = _PdfCanvas()
     page_w = 595
     page_h = 842
@@ -787,16 +804,22 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
     header_right_w = 185
     payment_method = (order.payment_method or "cash").upper()
     payment_label = f"{payment_status.upper()}: {payment_method}"
+    app_name = _profile_value(profile, "app_name", "MedStore")
+    bill_title = _profile_value(profile, "report_title", "Pharmacy Tax Bill")
+    tagline = _profile_value(profile, "tagline", "Pharmacy Billing & Retail Care")
+    address = _profile_value(profile, "address", "123 Health Avenue, Mumbai")
+    email = _profile_value(profile, "email", "support@medstore.local")
+    footer_note = _profile_value(profile, "footer_note", "Thank you for your purchase")
 
     canvas.rect(0, 0, page_w, page_h, fill=(0.98, 0.99, 1.0))
     canvas.rect(margin, header_y, content_w, header_h, fill=slate)
     canvas.rect(margin, header_y, 8, header_h, fill=accent)
-    canvas.text(54, 790, "MedStore", size=22, font="F2", color=(1, 1, 1))
-    canvas.fit_text(55, 774, "Pharmacy Billing & Retail Care", 230, size=9, color=(0.75, 0.85, 0.88))
+    canvas.text(54, 790, app_name, size=22, font="F2", color=(1, 1, 1))
+    canvas.fit_text(55, 774, tagline, 230, size=9, color=(0.75, 0.85, 0.88))
     canvas.fit_text(
         55,
         762,
-        "123 Health Avenue, Mumbai | support@medstore.local",
+        f"{address} | {email}",
         290,
         size=8,
         color=(0.75, 0.85, 0.88),
@@ -804,7 +827,7 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
     canvas.right_fit_text(
         header_right,
         792,
-        "TAX INVOICE",
+        bill_title.upper(),
         header_right_w,
         size=15,
         font="F2",
@@ -990,13 +1013,11 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
     canvas.text(margin, 173, "Payment Method", size=8, font="F2", color=muted)
     canvas.fit_text(margin, 155, payment_method, 170, size=15, font="F2", color=accent)
     canvas.fit_text(margin, 141, f"Status: {payment_status.upper()}", 180, size=8, font="F2", color=muted)
-    if getattr(order, "due_reminder_at", None):
-        canvas.fit_text(margin, 128, f"Reminder: {order.due_reminder_at}", 210, size=7, color=muted)
     canvas.text(margin, 124, "This is a computer generated invoice.", size=8, color=muted)
     canvas.text(margin, 110, "Please retain it for pharmacy sale records and return policy reference.", size=8, color=muted)
     canvas.line(margin, 88, page_w - margin, 88, border, 0.8)
-    canvas.text(margin, 70, "MedStore", size=9, font="F2", color=slate)
-    canvas.right_text(page_w - margin, 70, "Thank you for your purchase", size=9, color=muted)
+    canvas.text(margin, 70, app_name, size=9, font="F2", color=slate)
+    canvas.right_text(page_w - margin, 70, footer_note, size=9, color=muted)
 
     stream = ("\n".join(canvas.ops) + "\n").encode("latin-1", errors="replace")
 
@@ -1171,13 +1192,14 @@ async def get_order_invoice_pdf(
     if not rows:
         raise HTTPException(status_code=400, detail="Cannot generate invoice without order items")
 
-    html_doc = _invoice_html(order, rows)
+    profile = await get_store_profile(db)
+    html_doc = _invoice_html(order, rows, profile)
     try:
         from weasyprint import HTML
 
         pdf_bytes = HTML(string=html_doc).write_pdf()
     except Exception:
-        pdf_bytes = _fallback_invoice_pdf(order, rows)
+        pdf_bytes = _fallback_invoice_pdf(order, rows, profile)
 
     return Response(
         content=pdf_bytes,

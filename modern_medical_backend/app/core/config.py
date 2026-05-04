@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_s3_bucket: str = ""
     aws_region: str = "ap-south-1"
+    desktop_license_key_hash: str = "97935e441b1fab473c866cde6b362bb4834b8034f4ffebc1c38ea5be0a2ed6e1"
+    desktop_license_duration_days: int = 730
 
     class Config:
         env_file = ".env"
