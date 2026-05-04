@@ -2,6 +2,7 @@ import base64
 import binascii
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -27,6 +28,7 @@ from .schemas import (
     OrderOut,
     OrderItemAdd,
     OrderItemOut,
+    OrderPaymentPatch,
     OrderStatusPatch,
     PrescriptionReviewPatch,
     PrescriptionUploadOut,
@@ -37,7 +39,7 @@ from .schemas import (
     CartMedicineOut,
     CheckoutRequest,
 )
-from .service import complete_order, add_item_to_order
+from .service import complete_order, add_item_to_order, normalize_payment_fields
 
 router = APIRouter(tags=["orders"])
 
@@ -48,6 +50,29 @@ ALLOWED_PRESCRIPTION_TYPES = {
     "image/webp": ".webp",
 }
 MAX_PRESCRIPTION_BYTES = 2 * 1024 * 1024
+
+
+def _money_decimal(value) -> Decimal:
+    parsed = Decimal(str(value or "0"))
+    if parsed < 0:
+        return Decimal("0")
+    return parsed.quantize(Decimal("0.01"))
+
+
+def _apply_payment_fields(order: Order, body) -> None:
+    fields_set = getattr(body, "model_fields_set", set())
+    if "payment_method" in fields_set and getattr(body, "payment_method", None):
+        order.payment_method = body.payment_method.value
+    if "bill_discount_amount" in fields_set and getattr(body, "bill_discount_amount", None) is not None:
+        order.bill_discount_amount = _money_decimal(body.bill_discount_amount)
+    if "amount_paid" in fields_set and getattr(body, "amount_paid", None) is not None:
+        order.amount_paid = _money_decimal(body.amount_paid)
+    if "payment_status" in fields_set and getattr(body, "payment_status", None):
+        order.payment_status = body.payment_status.value
+    if "due_reminder_at" in fields_set:
+        order.due_reminder_at = getattr(body, "due_reminder_at", None)
+    if "due_notes" in fields_set:
+        order.due_notes = getattr(body, "due_notes", None)
 
 
 def _initial_payment_status(method: PaymentMethod) -> PaymentStatus:
@@ -153,19 +178,30 @@ async def _calculate_order_totals(db: AsyncSession, order_id: uuid.UUID) -> None
         .join(Medicine, Medicine.id == OrderItem.medicine_id)
         .where(OrderItem.order_id == order_id)
     )
-    total = 0
-    tax_total = 0
+    total = Decimal("0")
+    tax_total = Decimal("0")
+    item_discount_total = Decimal("0")
     for item, medicine in rows_result.all():
-        line_total = item.unit_price * item.quantity
-        total += line_total
-        tax_total += line_total * medicine.gst_rate / 100
+        gross_line_total = _money_decimal(item.unit_price) * item.quantity
+        item_discount = min(_money_decimal(item.discount_amount), gross_line_total)
+        discounted_line_total = gross_line_total - item_discount
+        total += discounted_line_total
+        tax_total += discounted_line_total * medicine.gst_rate / 100
+        item_discount_total += item_discount
 
     order_result = await db.execute(select(Order).where(Order.id == order_id))
     order = order_result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    order.total_amount = total
-    order.tax_amount = tax_total
+    bill_discount = min(
+        _money_decimal(order.bill_discount_amount),
+        _money_decimal(total + tax_total),
+    )
+    order.total_amount = _money_decimal(total)
+    order.tax_amount = _money_decimal(tax_total)
+    order.bill_discount_amount = bill_discount
+    order.discount_amount = _money_decimal(item_discount_total + bill_discount)
+    normalize_payment_fields(order)
 
 
 def _safe(value: str | None) -> str:
@@ -174,7 +210,7 @@ def _safe(value: str | None) -> str:
     return escape(str(value))
 
 
-def _money(value) -> str:
+def _format_money(value) -> str:
     return f"Rs {float(value or 0):,.2f}"
 
 
@@ -190,10 +226,10 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
     payment = _enum_value(order.payment_method).upper()
     online = getattr(order, "online_order", None)
     online_payment_status = getattr(online, "payment_status", None)
-    payment_status = (
-        _enum_value(online_payment_status)
-        if online_payment_status
-        else ("paid" if order.type == OrderType.offline else "pending")
+    payment_status = _enum_value(
+        getattr(order, "payment_status", None)
+        or online_payment_status
+        or ("paid" if order.type == OrderType.offline else "pending")
     )
     prescription_status = (
         getattr(online, "prescription_status", None)
@@ -211,10 +247,16 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
 
     generated_at = order.created_at.strftime("%d %b %Y, %I:%M %p")
     invoice_no = str(order.id)[:8].upper()
-    grand_total = order.total_amount + order.tax_amount
+    grand_total = _money_decimal(order.total_amount) + _money_decimal(order.tax_amount) - _money_decimal(getattr(order, "bill_discount_amount", 0))
 
-    item_rows = "".join(
-        f"""
+    item_rows_parts: list[str] = []
+    for item, medicine in rows:
+        gross_line_total = _money_decimal(item.unit_price) * item.quantity
+        item_discount = min(_money_decimal(getattr(item, "discount_amount", 0)), gross_line_total)
+        discounted_line_total = gross_line_total - item_discount
+        line_tax = discounted_line_total * medicine.gst_rate / 100
+        item_rows_parts.append(
+            f"""
         <tr>
           <td class="item-cell">
             <div class="item-name">{_safe(medicine.name)}</div>
@@ -225,14 +267,15 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
             <div class="item-meta">{_safe(medicine.category)}</div>
           </td>
           <td class="num">{item.quantity}</td>
-          <td class="num">{_money(item.unit_price)}</td>
+          <td class="num">{_format_money(item.unit_price)}</td>
+          <td class="num">{_format_money(item_discount)}</td>
           <td class="num">{float(medicine.gst_rate):.2f}%</td>
-          <td class="num">{_money((item.unit_price * item.quantity) * medicine.gst_rate / 100)}</td>
-          <td class="num strong">{_money((item.unit_price * item.quantity) + ((item.unit_price * item.quantity) * medicine.gst_rate / 100))}</td>
+          <td class="num">{_format_money(line_tax)}</td>
+          <td class="num strong">{_format_money(discounted_line_total + line_tax)}</td>
         </tr>
         """
-        for item, medicine in rows
-    )
+        )
+    item_rows = "".join(item_rows_parts)
 
     return f"""
     <html>
@@ -431,13 +474,14 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
           <div class="section">
             <table class="items">
               <colgroup>
-                <col style="width: 31%;" />
-                <col style="width: 17%;" />
-                <col style="width: 7%;" />
-                <col style="width: 13%;" />
-                <col style="width: 9%;" />
+                <col style="width: 29%;" />
+                <col style="width: 15%;" />
+                <col style="width: 6%;" />
                 <col style="width: 11%;" />
-                <col style="width: 12%;" />
+                <col style="width: 11%;" />
+                <col style="width: 8%;" />
+                <col style="width: 10%;" />
+                <col style="width: 10%;" />
               </colgroup>
               <thead>
                 <tr>
@@ -445,6 +489,7 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
                   <th>Brand / Category</th>
                   <th class="num">Qty</th>
                   <th class="num">Rate</th>
+                  <th class="num">Discount</th>
                   <th class="num">GST %</th>
                   <th class="num">Tax</th>
                   <th class="num">Amount</th>
@@ -468,15 +513,27 @@ def _invoice_html(order: Order, rows: list[tuple[OrderItem, Medicine]]) -> str:
                     <table>
                       <tr>
                         <td>Taxable Subtotal</td>
-                        <td class="num strong">{_money(order.total_amount)}</td>
+                        <td class="num strong">{_format_money(order.total_amount)}</td>
                       </tr>
                       <tr>
                         <td>GST / Tax</td>
-                        <td class="num strong">{_money(order.tax_amount)}</td>
+                        <td class="num strong">{_format_money(order.tax_amount)}</td>
+                      </tr>
+                      <tr>
+                        <td>Total Discount</td>
+                        <td class="num strong">-{_format_money(getattr(order, "discount_amount", 0))}</td>
+                      </tr>
+                      <tr>
+                        <td>Paid</td>
+                        <td class="num strong">{_format_money(getattr(order, "amount_paid", 0))}</td>
+                      </tr>
+                      <tr>
+                        <td>Due</td>
+                        <td class="num strong">{_format_money(getattr(order, "due_amount", 0))}</td>
                       </tr>
                       <tr class="grand">
                         <td>Total Payable</td>
-                        <td class="num">{_money(grand_total)}</td>
+                        <td class="num">{_format_money(grand_total)}</td>
                       </tr>
                     </table>
                   </div>
@@ -719,7 +776,8 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
     success_fg = (0.07, 0.38, 0.24)
     online_payment_status = getattr(order.online_order, "payment_status", None)
     payment_status = (
-        getattr(online_payment_status, "value", online_payment_status)
+        getattr(order, "payment_status", None)
+        or getattr(online_payment_status, "value", online_payment_status)
         or ("paid" if order.type == OrderType.offline else "pending")
     )
     content_w = page_w - margin * 2
@@ -860,8 +918,20 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
             )
         brand_lines = _pdf_wrap_to_width(medicine.brand or "-", 9, 78, max_lines=2)
         canvas.text_lines(285, y + 4, brand_lines, line_gap=11, size=9, color=ink)
-        line_total = item.unit_price * item.quantity
+        gross_line_total = _money_decimal(item.unit_price) * item.quantity
+        item_discount = min(_money_decimal(getattr(item, "discount_amount", 0)), gross_line_total)
+        line_total = gross_line_total - item_discount
         line_tax = line_total * medicine.gst_rate / 100
+        if item_discount > 0:
+            canvas.fit_text(
+                50,
+                y - 23,
+                f"Discount: Rs {item_discount:.2f}",
+                170,
+                size=7,
+                font="F2",
+                color=success_fg,
+            )
         canvas.right_fit_text(395, y + 1, str(item.quantity), 32, size=9, color=ink)
         canvas.right_fit_text(438, y + 1, f"{medicine.gst_rate:.0f}%", 34, size=9, color=ink)
         canvas.right_fit_text(496, y + 1, f"Rs {item.unit_price:.2f}", 64, size=9, color=ink)
@@ -872,24 +942,47 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
         canvas.fit_text(50, y + 4, f"+ {len(rows) - max_rows} more item(s)", 200, size=8, font="F2", color=muted)
         y -= row_h
 
-    summary_y = 126
+    summary_y = 108
     summary_x = 350
     summary_w = 209
-    summary_h = 110
+    summary_h = 132
+    payable = (
+        _money_decimal(order.total_amount)
+        + _money_decimal(order.tax_amount)
+        - _money_decimal(getattr(order, "bill_discount_amount", 0))
+    )
     canvas.rect(summary_x, summary_y, summary_w, summary_h, fill=(1, 1, 1), stroke=border)
-    canvas.text(summary_x + 14, summary_y + 84, "BILL SUMMARY", size=9, font="F2", color=accent)
-    canvas.text(summary_x + 14, summary_y + 62, "Subtotal", size=9, color=muted)
-    canvas.right_fit_text(summary_x + summary_w - 14, summary_y + 62, f"Rs {order.total_amount:.2f}", 95, size=9, color=ink)
-    canvas.text(summary_x + 14, summary_y + 42, "GST / Tax", size=9, color=muted)
-    canvas.right_fit_text(summary_x + summary_w - 14, summary_y + 42, f"Rs {order.tax_amount:.2f}", 95, size=9, color=ink)
-    canvas.line(summary_x + 14, summary_y + 32, summary_x + summary_w - 14, summary_y + 32, border, 0.8)
-    canvas.text(summary_x + 14, summary_y + 14, "Total Payable", size=11, font="F2", color=ink)
+    canvas.text(summary_x + 14, summary_y + 108, "BILL SUMMARY", size=9, font="F2", color=accent)
+    canvas.text(summary_x + 14, summary_y + 88, "Subtotal", size=8, color=muted)
+    canvas.right_fit_text(summary_x + summary_w - 14, summary_y + 88, f"Rs {order.total_amount:.2f}", 95, size=8, color=ink)
+    canvas.text(summary_x + 14, summary_y + 72, "GST / Tax", size=8, color=muted)
+    canvas.right_fit_text(summary_x + summary_w - 14, summary_y + 72, f"Rs {order.tax_amount:.2f}", 95, size=8, color=ink)
+    canvas.text(summary_x + 14, summary_y + 56, "Discount", size=8, color=muted)
     canvas.right_fit_text(
         summary_x + summary_w - 14,
-        summary_y + 14,
-        f"Rs {(order.total_amount + order.tax_amount):.2f}",
+        summary_y + 56,
+        f"- Rs {_money_decimal(getattr(order, 'discount_amount', 0)):.2f}",
+        95,
+        size=8,
+        color=success_fg,
+    )
+    canvas.text(summary_x + 14, summary_y + 40, "Paid / Due", size=8, color=muted)
+    canvas.right_fit_text(
+        summary_x + summary_w - 14,
+        summary_y + 40,
+        f"Rs {_money_decimal(getattr(order, 'amount_paid', 0)):.2f} / Rs {_money_decimal(getattr(order, 'due_amount', 0)):.2f}",
+        118,
+        size=8,
+        color=ink,
+    )
+    canvas.line(summary_x + 14, summary_y + 30, summary_x + summary_w - 14, summary_y + 30, border, 0.8)
+    canvas.text(summary_x + 14, summary_y + 12, "Total Payable", size=10, font="F2", color=ink)
+    canvas.right_fit_text(
+        summary_x + summary_w - 14,
+        summary_y + 12,
+        f"Rs {payable:.2f}",
         100,
-        size=12,
+        size=11,
         font="F2",
         color=ink,
     )
@@ -897,6 +990,8 @@ def _fallback_invoice_pdf(order: Order, rows: list[tuple[OrderItem, Medicine]]) 
     canvas.text(margin, 173, "Payment Method", size=8, font="F2", color=muted)
     canvas.fit_text(margin, 155, payment_method, 170, size=15, font="F2", color=accent)
     canvas.fit_text(margin, 141, f"Status: {payment_status.upper()}", 180, size=8, font="F2", color=muted)
+    if getattr(order, "due_reminder_at", None):
+        canvas.fit_text(margin, 128, f"Reminder: {order.due_reminder_at}", 210, size=7, color=muted)
     canvas.text(margin, 124, "This is a computer generated invoice.", size=8, color=muted)
     canvas.text(margin, 110, "Please retain it for pharmacy sale records and return policy reference.", size=8, color=muted)
     canvas.line(margin, 88, page_w - margin, 88, border, 0.8)
@@ -989,6 +1084,11 @@ async def create_order(
         doctor_registration=body.doctor_registration,
         prescription_notes=body.prescription_notes,
         payment_method=body.payment_method.value,
+        bill_discount_amount=_money_decimal(body.bill_discount_amount),
+        amount_paid=_money_decimal(body.amount_paid),
+        payment_status=(body.payment_status or PaymentStatus.paid).value,
+        due_reminder_at=body.due_reminder_at,
+        due_notes=body.due_notes,
     )
     db.add(order)
     await db.flush()
@@ -1180,7 +1280,13 @@ async def add_order_item(
         raise HTTPException(status_code=400, detail="Cannot add items to a non-pending order")
 
     try:
-        item = await add_item_to_order(db, order_id, body.medicine_id, body.quantity)
+        item = await add_item_to_order(
+            db,
+            order_id,
+            body.medicine_id,
+            body.quantity,
+            body.discount_amount,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1195,6 +1301,7 @@ async def add_order_item(
 @router.post("/orders/{order_id}/complete", response_model=OrderOut)
 async def complete_order_endpoint(
     order_id: uuid.UUID,
+    body: OrderPaymentPatch | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("admin", "staff", "customer")),
 ):
@@ -1206,10 +1313,34 @@ async def complete_order_endpoint(
         if order.user_id != uuid.UUID(current_user["sub"]):
             raise HTTPException(status_code=403, detail="Access denied")
 
+    if body is not None:
+        _apply_payment_fields(order, body)
+
     try:
         await complete_order(db, order_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    loaded = await _get_order_with_relations(db, order_id)
+    if not loaded:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return loaded
+
+
+@router.patch("/orders/{order_id}/payment", response_model=OrderOut)
+async def update_order_payment(
+    order_id: uuid.UUID,
+    body: OrderPaymentPatch,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_role("admin", "staff")),
+):
+    order = await _get_order_with_relations(db, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    _apply_payment_fields(order, body)
+    normalize_payment_fields(order)
+    await db.commit()
 
     loaded = await _get_order_with_relations(db, order_id)
     if not loaded:
@@ -1367,6 +1498,11 @@ async def checkout(
         doctor_registration=body.doctor_registration,
         prescription_notes=body.prescription_notes,
         payment_method=body.payment_method.value,
+        bill_discount_amount=_money_decimal(body.bill_discount_amount),
+        amount_paid=_money_decimal(body.amount_paid),
+        payment_status=(body.payment_status or _initial_payment_status(body.payment_method)).value,
+        due_reminder_at=body.due_reminder_at,
+        due_notes=body.due_notes,
     )
     db.add(order)
     await db.flush()

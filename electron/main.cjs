@@ -74,6 +74,7 @@ function startBackend() {
     DATABASE_URL: `sqlite+aiosqlite:///${dbPath.replaceAll("\\", "/")}`,
     BOOTSTRAP_ON_STARTUP: "true",
     SEED_DEMO_DATA: "true",
+    ACCESS_TOKEN_EXPIRE_MINUTES: "43200",
     HOST: "127.0.0.1",
     PORT: String(BACKEND_PORT),
   }

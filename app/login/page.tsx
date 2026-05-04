@@ -1,5 +1,5 @@
 "use client"
-import { getSession, signIn } from "next-auth/react"
+import { signIn } from "next-auth/react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -33,23 +33,20 @@ export default function LoginPage() {
       email,
       password,
       redirect: false,
+      callbackUrl: "/",
     })
     setLoading(false)
     if (result?.error) {
       setError("Invalid email or password")
       return
     }
-    const session = await getSession()
-    const role = (session?.user as any)?.role
-    if (role === "admin") {
-      router.push("/admin/dashboard")
-      return
-    }
-    if (role === "staff") {
-      router.push("/pos")
-      return
-    }
-    router.push("/")
+    const nextUrl = result?.url
+      ? result.url.startsWith("http")
+        ? new URL(result.url).pathname
+        : result.url
+      : "/"
+    router.replace(nextUrl)
+    router.refresh()
   }
 
   return (

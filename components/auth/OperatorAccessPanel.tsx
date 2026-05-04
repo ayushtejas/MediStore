@@ -192,7 +192,7 @@ export function OperatorAccessPanel({
             "gap-2",
             isSidebar && "text-slate-300 hover:bg-red-500/15 hover:text-red-100"
           )}
-          onClick={() => signOut({ callbackUrl: "/" })}
+          onClick={() => signOut({ callbackUrl: "/login" })}
         >
           <LogOut className="h-4 w-4" />
           Log out

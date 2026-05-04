@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Download,
@@ -53,13 +53,15 @@ function amount(value: number | string | null | undefined) {
 }
 
 function total(order: any) {
-  return amount(order.total_amount) + amount(order.tax_amount)
+  return amount(order.total_amount) + amount(order.tax_amount) - amount(order.bill_discount_amount)
 }
 
 function lineTotal(item: any) {
   const base = amount(item.unit_price) * Number(item.quantity || 0)
+  const discount = Math.min(amount(item.discount_amount), base)
+  const taxable = base - discount
   const gst = amount(item.medicine?.gst_rate)
-  return base + (base * gst) / 100
+  return taxable + (taxable * gst) / 100
 }
 
 function inr(value: number) {
@@ -67,8 +69,7 @@ function inr(value: number) {
 }
 
 function paymentStatus(order: any) {
-  if (order.type !== "online") return "paid"
-  return String(order.online_order?.payment_status || "pending")
+  return String(order.payment_status || order.online_order?.payment_status || "pending")
 }
 
 function paymentStatusClass(status: string) {
@@ -77,12 +78,31 @@ function paymentStatusClass(status: string) {
   return "bg-amber-50 text-amber-700 hover:bg-amber-50"
 }
 
+function toDateTimeLocal(value: string | null | undefined) {
+  if (!value) return ""
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ""
+  const offsetMs = parsed.getTimezoneOffset() * 60_000
+  return new Date(parsed.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+function fromDateTimeLocal(value: string) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString()
+}
+
 export default function OrdersPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
   const [query, setQuery] = useState("")
   const [activeFilter, setActiveFilter] = useState("all")
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [paymentEditStatus, setPaymentEditStatus] = useState("paid")
+  const [paymentEditAmount, setPaymentEditAmount] = useState("")
+  const [paymentEditReminder, setPaymentEditReminder] = useState("")
+  const [paymentEditNotes, setPaymentEditNotes] = useState("")
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ["orders"],
@@ -108,12 +128,38 @@ export default function OrdersPage() {
       }),
   })
 
+  const updatePayment = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Record<string, string | number | null>
+    }) =>
+      clientFetch(`/orders/${id}/payment`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orders"] })
+      qc.invalidateQueries({ queryKey: ["admin-orders-overview"] })
+      toast({ title: "Payment details updated" })
+    },
+    onError: (error: Error) =>
+      toast({
+        title: "Failed to update payment",
+        description: error.message,
+        variant: "destructive",
+      }),
+  })
+
   const filteredOrders = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return orders.filter((order: any) => {
       const matchesFilter =
         activeFilter === "all" ||
         (activeFilter === "pos" && order.type === "offline") ||
+        (activeFilter === "dues" && amount(order.due_amount) > 0) ||
         (activeFilter === "delivered" && order.status === "delivered") ||
         (activeFilter === "open" &&
           ["pending", "confirmed", "packed", "dispatched"].includes(order.status))
@@ -138,11 +184,26 @@ export default function OrdersPage() {
   const openOrders = orders.filter((order: any) =>
     ["pending", "packed", "dispatched"].includes(order.status)
   )
+  const dueOrders = orders.filter((order: any) => amount(order.due_amount) > 0)
+  const dueAmount = dueOrders.reduce((sum: number, order: any) => sum + amount(order.due_amount), 0)
+  const discountGiven = orders.reduce((sum: number, order: any) => sum + amount(order.discount_amount), 0)
+  const dueReminders = dueOrders.filter((order: any) => {
+    if (!order.due_reminder_at) return false
+    return new Date(order.due_reminder_at).getTime() <= Date.now()
+  })
   const revenue = orders.reduce((sum: number, order: any) => sum + total(order), 0)
   const selectedOrder = useMemo(
     () => orders.find((order: any) => order.id === selectedOrderId) || null,
     [orders, selectedOrderId]
   )
+
+  useEffect(() => {
+    if (!selectedOrder) return
+    setPaymentEditStatus(paymentStatus(selectedOrder))
+    setPaymentEditAmount(String(amount(selectedOrder.amount_paid) || ""))
+    setPaymentEditReminder(toDateTimeLocal(selectedOrder.due_reminder_at))
+    setPaymentEditNotes(selectedOrder.due_notes || "")
+  }, [selectedOrder])
 
   const stats = [
     {
@@ -153,16 +214,16 @@ export default function OrdersPage() {
       tone: "bg-emerald-50 text-emerald-700",
     },
     {
-      label: "Open Workflow",
-      value: String(openOrders.length),
-      sub: "Pending, packed or dispatched",
+      label: "Due Collection",
+      value: inr(dueAmount),
+      sub: `${dueOrders.length} bills · ${dueReminders.length} reminders due`,
       icon: Truck,
       tone: "bg-amber-50 text-amber-700",
     },
     {
-      label: "Offline Bills",
-      value: String(offlineOrders.length),
-      sub: "POS counter sales",
+      label: "Discount Given",
+      value: inr(discountGiven),
+      sub: `${offlineOrders.length} POS bills tracked`,
       icon: FileText,
       tone: "bg-cyan-50 text-cyan-700",
     },
@@ -181,6 +242,7 @@ export default function OrdersPage() {
   const filters = [
     { key: "all", label: "All past orders", count: orders.length },
     { key: "open", label: "Open workflow", count: openOrders.length },
+    { key: "dues", label: "Due / partial", count: dueOrders.length },
     { key: "pos", label: "POS bills", count: offlineOrders.length },
     {
       key: "delivered",
@@ -323,7 +385,10 @@ export default function OrdersPage() {
                   <TableCell className="text-right font-semibold">
                     {inr(total(order))}
                     <p className="text-xs font-normal text-muted-foreground">
-                      Tax {inr(amount(order.tax_amount))}
+                      Discount {inr(amount(order.discount_amount))} · Tax {inr(amount(order.tax_amount))}
+                    </p>
+                    <p className="text-xs font-normal text-amber-700">
+                      Due {inr(amount(order.due_amount))}
                     </p>
                   </TableCell>
                   <TableCell>
@@ -430,8 +495,21 @@ export default function OrdersPage() {
                       {selectedOrder.payment_method || "cash"}
                     </Badge>
                     <Badge className={paymentStatusClass(paymentStatus(selectedOrder))}>
-                      {paymentStatus(selectedOrder)}
+                      {paymentStatus(selectedOrder).replace("_", " ")}
                     </Badge>
+                  </div>
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <p>Discount: {inr(amount(selectedOrder.discount_amount))}</p>
+                    <p>Paid: {inr(amount(selectedOrder.amount_paid))}</p>
+                    <p className={amount(selectedOrder.due_amount) > 0 ? "font-semibold text-amber-700" : ""}>
+                      Due: {inr(amount(selectedOrder.due_amount))}
+                    </p>
+                    <p>
+                      Reminder:{" "}
+                      {selectedOrder.due_reminder_at
+                        ? new Date(selectedOrder.due_reminder_at).toLocaleString("en-IN")
+                        : "Not set"}
+                    </p>
                   </div>
                 </div>
                 <div className="rounded-3xl border border-emerald-100 bg-white/90 p-4 shadow-sm">
@@ -464,6 +542,68 @@ export default function OrdersPage() {
                 </div>
               </div>
 
+              <div className="rounded-3xl border border-amber-100 bg-amber-50/60 p-4 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-700">
+                      Due & Reminder Control
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Owner-controlled follow-up for unpaid or partially paid bills.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[150px_160px_220px_1fr_auto]">
+                    <Select value={paymentEditStatus} onValueChange={setPaymentEditStatus}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paid">paid</SelectItem>
+                        <SelectItem value="due">due</SelectItem>
+                        <SelectItem value="partially_paid">partially paid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={paymentEditAmount}
+                      onChange={(event) => setPaymentEditAmount(event.target.value)}
+                      placeholder="Amount paid"
+                      className="bg-white"
+                    />
+                    <Input
+                      type="datetime-local"
+                      value={paymentEditReminder}
+                      onChange={(event) => setPaymentEditReminder(event.target.value)}
+                      className="bg-white"
+                    />
+                    <Input
+                      value={paymentEditNotes}
+                      onChange={(event) => setPaymentEditNotes(event.target.value)}
+                      placeholder="Reminder note"
+                      className="bg-white"
+                    />
+                    <Button
+                      disabled={updatePayment.isPending}
+                      onClick={() =>
+                        updatePayment.mutate({
+                          id: selectedOrder.id,
+                          payload: {
+                            payment_status: paymentEditStatus,
+                            amount_paid: amount(paymentEditAmount),
+                            due_reminder_at: fromDateTimeLocal(paymentEditReminder),
+                            due_notes: paymentEditNotes.trim() || null,
+                          },
+                        })
+                      }
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div className="rounded-3xl border border-emerald-100 bg-white shadow-sm">
                 <div className="border-b border-emerald-100 p-4">
                   <p className="font-semibold text-slate-950">Medicines billed</p>
@@ -479,6 +619,7 @@ export default function OrdersPage() {
                         <TableHead>Brand / Category</TableHead>
                         <TableHead className="text-right">Qty</TableHead>
                         <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Discount</TableHead>
                         <TableHead className="text-right">GST</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                       </TableRow>
@@ -505,6 +646,9 @@ export default function OrdersPage() {
                             <TableCell className="text-right">
                               {inr(amount(item.unit_price))}
                             </TableCell>
+                            <TableCell className="text-right text-emerald-700">
+                              {inr(amount(item.discount_amount))}
+                            </TableCell>
                             <TableCell className="text-right">
                               {amount(item.medicine?.gst_rate).toFixed(2)}%
                             </TableCell>
@@ -515,7 +659,7 @@ export default function OrdersPage() {
                         ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                          <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                             No line items captured for this order.
                           </TableCell>
                         </TableRow>

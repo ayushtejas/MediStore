@@ -302,6 +302,146 @@ async def test_complete_order_deducts_stock(client, db):
 
 
 @pytest.mark.asyncio
+async def test_complete_order_tracks_discounts_partial_payment_and_due_reminder(client, db):
+    _, token = await _make_user(db, "staff")
+
+    med_id = uuid.uuid4()
+    batch_id = uuid.uuid4()
+    await db.execute(
+        insert(Medicine).values(
+            id=med_id,
+            name="DiscountMed",
+            gst_rate=Decimal("10.0"),
+            low_stock_threshold=5,
+        )
+    )
+    await db.execute(
+        insert(Inventory).values(
+            id=batch_id,
+            medicine_id=med_id,
+            batch_number="DISC-1",
+            expiry_date=date.today() + timedelta(days=180),
+            selling_price=Decimal("100.00"),
+            cost_price=Decimal("70.00"),
+            quantity_available=10,
+        )
+    )
+    await db.commit()
+
+    reminder_at = "2026-05-10T10:30:00+05:30"
+    order_resp = await client.post(
+        "/orders",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "type": "offline",
+            "payment_method": "upi",
+            "bill_discount_amount": "10.00",
+            "amount_paid": "100.00",
+            "payment_status": "partially_paid",
+            "due_reminder_at": reminder_at,
+            "due_notes": "Call customer before closing day.",
+        },
+    )
+    assert order_resp.status_code == 201
+    order_id = order_resp.json()["id"]
+
+    item_resp = await client.post(
+        f"/orders/{order_id}/items",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "medicine_id": str(med_id),
+            "quantity": 2,
+            "discount_amount": "20.00",
+        },
+    )
+    assert item_resp.status_code == 201
+    assert item_resp.json()["discount_amount"] == "20.00"
+
+    complete_resp = await client.post(
+        f"/orders/{order_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert complete_resp.status_code == 200
+    data = complete_resp.json()
+
+    assert data["total_amount"] == "180.00"
+    assert data["tax_amount"] == "18.00"
+    assert data["bill_discount_amount"] == "10.00"
+    assert data["discount_amount"] == "30.00"
+    assert data["amount_paid"] == "100.00"
+    assert data["due_amount"] == "88.00"
+    assert data["payment_status"] == "partially_paid"
+    assert data["due_reminder_at"].startswith("2026-05-10T10:30:00")
+    assert data["due_notes"] == "Call customer before closing day."
+
+    result = await db.execute(select(Inventory).where(Inventory.id == batch_id))
+    batch = result.scalar_one()
+    assert batch.quantity_available == 8
+
+
+@pytest.mark.asyncio
+async def test_order_payment_patch_recalculates_due_state(client, db):
+    _, token = await _make_user(db, "staff")
+
+    med_id = uuid.uuid4()
+    await db.execute(
+        insert(Medicine).values(
+            id=med_id,
+            name="DueMed",
+            gst_rate=Decimal("0.0"),
+            low_stock_threshold=5,
+        )
+    )
+    await db.execute(
+        insert(Inventory).values(
+            id=uuid.uuid4(),
+            medicine_id=med_id,
+            batch_number="DUE-1",
+            expiry_date=date.today() + timedelta(days=180),
+            selling_price=Decimal("50.00"),
+            cost_price=Decimal("30.00"),
+            quantity_available=5,
+        )
+    )
+    await db.commit()
+
+    order_resp = await client.post(
+        "/orders",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"type": "offline"},
+    )
+    order_id = order_resp.json()["id"]
+    await client.post(
+        f"/orders/{order_id}/items",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"medicine_id": str(med_id), "quantity": 2},
+    )
+    complete_resp = await client.post(
+        f"/orders/{order_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert complete_resp.status_code == 200
+    assert complete_resp.json()["payment_status"] == "paid"
+
+    patch_resp = await client.patch(
+        f"/orders/{order_id}/payment",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "amount_paid": "40.00",
+            "payment_status": "partially_paid",
+            "due_reminder_at": "2026-05-12T09:00:00+05:30",
+            "due_notes": "Reminder set by owner.",
+        },
+    )
+    assert patch_resp.status_code == 200
+    patched = patch_resp.json()
+    assert patched["amount_paid"] == "40.00"
+    assert patched["due_amount"] == "60.00"
+    assert patched["payment_status"] == "partially_paid"
+    assert patched["due_notes"] == "Reminder set by owner."
+
+
+@pytest.mark.asyncio
 async def test_cart_flow(client, db):
     uid, token = await _make_user(db, "customer")
 

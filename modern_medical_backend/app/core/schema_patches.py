@@ -12,6 +12,17 @@ ORDER_COLUMN_PATCHES = {
     "doctor_registration": "doctor_registration VARCHAR(128)",
     "prescription_notes": "prescription_notes VARCHAR(500)",
     "payment_method": "payment_method VARCHAR(32) DEFAULT 'cash'",
+    "payment_status": "payment_status VARCHAR(32) DEFAULT 'paid' NOT NULL",
+    "discount_amount": "discount_amount NUMERIC(10, 2) DEFAULT 0 NOT NULL",
+    "bill_discount_amount": "bill_discount_amount NUMERIC(10, 2) DEFAULT 0 NOT NULL",
+    "amount_paid": "amount_paid NUMERIC(10, 2) DEFAULT 0 NOT NULL",
+    "due_amount": "due_amount NUMERIC(10, 2) DEFAULT 0 NOT NULL",
+    "due_reminder_at": "due_reminder_at DATETIME",
+    "due_notes": "due_notes VARCHAR(500)",
+}
+
+ORDER_ITEM_COLUMN_PATCHES = {
+    "discount_amount": "discount_amount NUMERIC(10, 2) DEFAULT 0 NOT NULL",
 }
 
 MEDICINE_COLUMN_PATCHES = {
@@ -46,6 +57,13 @@ def _apply_order_column_patches_sync(conn: Connection) -> None:
         if column_name in existing_columns:
             continue
         conn.execute(text(f"ALTER TABLE orders ADD COLUMN {ddl}"))
+
+    if "order_items" in table_names:
+        existing_item_columns = {c["name"] for c in inspector.get_columns("order_items")}
+        for column_name, ddl in ORDER_ITEM_COLUMN_PATCHES.items():
+            if column_name in existing_item_columns:
+                continue
+            conn.execute(text(f"ALTER TABLE order_items ADD COLUMN {ddl}"))
 
     if "online_orders" in table_names:
         existing_online_columns = {c["name"] for c in inspector.get_columns("online_orders")}

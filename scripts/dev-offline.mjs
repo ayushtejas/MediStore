@@ -93,6 +93,7 @@ spawnNamed(
       DATABASE_URL: process.env.DATABASE_URL || "sqlite+aiosqlite:///./medical_store.db",
       BOOTSTRAP_ON_STARTUP: "true",
       SEED_DEMO_DATA: "true",
+      ACCESS_TOKEN_EXPIRE_MINUTES: "43200",
     },
   }
 )

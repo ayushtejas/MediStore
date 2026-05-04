@@ -3,8 +3,17 @@ import Credentials from "next-auth/providers/credentials"
 
 const AUTH_API_URL =
   process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const ONE_MONTH_SECONDS = 30 * 24 * 60 * 60
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  session: {
+    strategy: "jwt",
+    maxAge: ONE_MONTH_SECONDS,
+    updateAge: 24 * 60 * 60,
+  },
+  jwt: {
+    maxAge: ONE_MONTH_SECONDS,
+  },
   providers: [
     Credentials({
       credentials: {

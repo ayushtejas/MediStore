@@ -27,6 +27,10 @@ function inr(value: number) {
   return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
 }
 
+function orderPayable(order: any) {
+  return money(order.total_amount) + money(order.tax_amount) - money(order.bill_discount_amount)
+}
+
 export default function DashboardPage() {
   const { data: alerts } = useQuery({
     queryKey: ["inventory-alerts"],
@@ -52,7 +56,17 @@ export default function DashboardPage() {
   )
   const confirmedOrders = orders.filter((order: any) => order.status === "confirmed")
   const todayRevenue = todayOrders.reduce(
-    (sum: number, order: any) => sum + money(order.total_amount) + money(order.tax_amount),
+    (sum: number, order: any) => sum + orderPayable(order),
+    0
+  )
+  const dueOrders = orders.filter((order: any) => money(order.due_amount) > 0)
+  const dueAmount = dueOrders.reduce((sum: number, order: any) => sum + money(order.due_amount), 0)
+  const dueReminders = dueOrders.filter((order: any) => {
+    if (!order.due_reminder_at) return false
+    return new Date(order.due_reminder_at).getTime() <= Date.now()
+  })
+  const discountGiven = todayOrders.reduce(
+    (sum: number, order: any) => sum + money(order.discount_amount),
     0
   )
   const stockUnits = medicines.reduce(
@@ -108,11 +122,18 @@ export default function DashboardPage() {
       tone: "text-blue-700 bg-blue-50",
     },
     {
-      label: "Needs Attention",
-      value: String((alerts?.low_stock_alerts?.length ?? 0) + outOfStock.length),
-      sub: `${alerts?.expiry_alerts?.length ?? 0} expiring soon`,
+      label: "Due Collection",
+      value: inr(dueAmount),
+      sub: `${dueReminders.length} reminders due`,
       icon: AlertTriangle,
       tone: "text-amber-700 bg-amber-50",
+    },
+    {
+      label: "Stock Alerts",
+      value: String((alerts?.low_stock_alerts?.length ?? 0) + outOfStock.length),
+      sub: `${alerts?.expiry_alerts?.length ?? 0} batches expiring soon`,
+      icon: PackageMinus,
+      tone: "text-rose-700 bg-rose-50",
     },
   ]
 
@@ -134,6 +155,7 @@ export default function DashboardPage() {
         <div className="flex flex-wrap gap-2">
           <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Live stock sync</Badge>
           <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100">FIFO sale deduction</Badge>
+          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{dueOrders.length} due bills</Badge>
           <Badge className="bg-white text-slate-700 hover:bg-white">{confirmedOrders.length} confirmed orders</Badge>
         </div>
       </div>
@@ -210,9 +232,12 @@ export default function DashboardPage() {
                     <Badge variant={order.status === "confirmed" ? "secondary" : "outline"}>
                       {order.status}
                     </Badge>
-                    <p className="font-semibold text-slate-950">
-                      {inr(money(order.total_amount) + money(order.tax_amount))}
-                    </p>
+                    <div className="text-right">
+                      <p className="font-semibold text-slate-950">{inr(orderPayable(order))}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Disc {inr(money(order.discount_amount))} · Due {inr(money(order.due_amount))}
+                      </p>
+                    </div>
                   </div>
                 ))}
                 {orders.length === 0 && (
@@ -221,6 +246,46 @@ export default function DashboardPage() {
                   </p>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="admin-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-amber-700" />
+                Payment Follow-up Alerts
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+                <p className="text-sm text-muted-foreground">Due amount pending</p>
+                <p className="mt-1 text-2xl font-black text-amber-800">{inr(dueAmount)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{dueOrders.length} unpaid or partial bills</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <p className="text-sm text-muted-foreground">Discounts today</p>
+                <p className="mt-1 text-2xl font-black text-emerald-800">{inr(discountGiven)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Tracked across item and bill discounts</p>
+              </div>
+              {dueReminders.slice(0, 4).map((order: any) => (
+                <div key={order.id} className="rounded-2xl border border-amber-100 bg-white p-3 text-sm shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-950">#{order.id?.slice(0, 8)}</p>
+                      <p className="text-xs text-muted-foreground">{order.customer_name || "Walk-in customer"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{order.due_notes || "No reminder note"}</p>
+                    </div>
+                    <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+                      {inr(money(order.due_amount))}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+              {dueReminders.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-emerald-200 bg-white p-4 text-center text-sm text-muted-foreground md:col-span-2">
+                  No payment reminders are due right now.
+                </p>
+              )}
             </CardContent>
           </Card>
         </section>

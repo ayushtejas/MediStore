@@ -25,10 +25,24 @@ class OrderCreate(BaseModel):
     doctor_registration: str | None = None
     prescription_notes: str | None = None
     payment_method: PaymentMethod = PaymentMethod.cash
+    bill_discount_amount: Decimal = Decimal("0")
+    amount_paid: Decimal | None = None
+    payment_status: PaymentStatus | None = None
+    due_reminder_at: datetime | None = None
+    due_notes: str | None = None
 
 
 class OrderStatusPatch(BaseModel):
     status: OrderStatus
+
+
+class OrderPaymentPatch(BaseModel):
+    payment_method: PaymentMethod | None = None
+    payment_status: PaymentStatus | None = None
+    bill_discount_amount: Decimal | None = None
+    amount_paid: Decimal | None = None
+    due_reminder_at: datetime | None = None
+    due_notes: str | None = None
 
 
 class PrescriptionUploadRequest(BaseModel):
@@ -52,6 +66,7 @@ class PrescriptionReviewPatch(BaseModel):
 class OrderItemAdd(BaseModel):
     medicine_id: uuid.UUID
     quantity: int
+    discount_amount: Decimal = Decimal("0")
 
 
 class OrderMedicineOut(BaseModel):
@@ -74,6 +89,7 @@ class OrderItemOut(BaseModel):
     batch_id: uuid.UUID
     quantity: int
     unit_price: Decimal
+    discount_amount: Decimal = Decimal("0")
     medicine: OrderMedicineOut | None = None
 
     model_config = {"from_attributes": True}
@@ -108,6 +124,13 @@ class OrderOut(BaseModel):
     doctor_registration: str | None = None
     prescription_notes: str | None = None
     payment_method: str | None = None
+    payment_status: str = PaymentStatus.paid.value
+    discount_amount: Decimal = Decimal("0")
+    bill_discount_amount: Decimal = Decimal("0")
+    amount_paid: Decimal = Decimal("0")
+    due_amount: Decimal = Decimal("0")
+    due_reminder_at: datetime | None = None
+    due_notes: str | None = None
     created_at: datetime
     items: list[OrderItemOut] = []
     online_order: OnlineOrderOut | None = None
@@ -159,3 +182,8 @@ class CheckoutRequest(BaseModel):
     doctor_registration: str | None = None
     prescription_notes: str | None = None
     payment_method: PaymentMethod = PaymentMethod.upi
+    bill_discount_amount: Decimal = Decimal("0")
+    amount_paid: Decimal | None = None
+    payment_status: PaymentStatus | None = None
+    due_reminder_at: datetime | None = None
+    due_notes: str | None = None

@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60
+    access_token_expire_minutes: int = 60 * 24 * 30
     bootstrap_on_startup: bool = True
     seed_demo_data: bool = True
     razorpay_key_id: str = ""

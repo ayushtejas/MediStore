@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { LayoutDashboard, Package, ShoppingCart, Truck, Sparkles } from "lucide-react"
+import { BellRing, LayoutDashboard, Package, ShoppingCart, Truck, Sparkles } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { OperatorAccessPanel } from "@/components/auth/OperatorAccessPanel"
 
@@ -9,6 +9,7 @@ const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/inventory", label: "Inventory", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/admin/khata", label: "Khata & Alerts", icon: BellRing },
   { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
 ]
 
@@ -59,15 +60,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Footer */}
         <div className="shrink-0 border-t border-border p-4">
-          <div className="rounded-[1.75rem] bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-1 shadow-xl shadow-emerald-950/15">
-            <OperatorAccessPanel
-              email={session.user?.email}
-              role={(session.user as any)?.role}
-              variant="sidebar"
-              showNavigation={false}
-              className="border-emerald-300/10 bg-white/[0.05]"
-            />
-          </div>
+          <OperatorAccessPanel
+            email={session.user?.email}
+            role={(session.user as any)?.role}
+            variant="sidebar"
+            showNavigation={false}
+            className="border-emerald-300/10 bg-slate-950 text-white shadow-xl shadow-emerald-950/15"
+          />
         </div>
       </aside>
 

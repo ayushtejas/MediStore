@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { signOut } from "next-auth/react"
+import { getSession, signOut } from "next-auth/react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -44,15 +44,22 @@ interface Medicine {
 interface CartLine {
   medicine: Medicine
   quantity: number
+  discount: string
 }
 
 type PaymentMethod = "cash" | "upi" | "card"
+type PaymentStatus = "paid" | "due" | "partially_paid"
 
 interface Order {
   id: string
   created_at: string
   total_amount: number | string
   tax_amount?: number | string
+  discount_amount?: number | string
+  bill_discount_amount?: number | string
+  amount_paid?: number | string
+  due_amount?: number | string
+  payment_status?: PaymentStatus | string
   status: string
   type: string
   payment_method?: PaymentMethod
@@ -65,9 +72,29 @@ function toAmount(value: number | string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function orderPayable(order: Order): number {
+  return (
+    toAmount(order.total_amount) +
+    toAmount(order.tax_amount) -
+    toAmount(order.bill_discount_amount)
+  )
+}
+
 function optionalText(value: string): string | null {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function clampDiscount(value: number, max: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.min(value, Math.max(max, 0))
+}
+
+function toLocalInputIso(value: string): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString()
 }
 
 const PAYMENT_OPTIONS: { label: string; value: PaymentMethod }[] = [
@@ -76,9 +103,16 @@ const PAYMENT_OPTIONS: { label: string; value: PaymentMethod }[] = [
   { label: "Card", value: "card" },
 ]
 
+const PAYMENT_STATUS_OPTIONS: { label: string; value: PaymentStatus; help: string }[] = [
+  { label: "Paid", value: "paid", help: "Full amount collected now" },
+  { label: "Due", value: "due", help: "Nothing collected, reminder required" },
+  { label: "Partial", value: "partially_paid", help: "Some amount collected" },
+]
+
 export default function POSPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const [operatorRole, setOperatorRole] = useState<string | null>(null)
 
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState("All")
@@ -93,6 +127,22 @@ export default function POSPage() {
   const [doctorRegistration, setDoctorRegistration] = useState("")
   const [prescriptionNotes, setPrescriptionNotes] = useState("")
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash")
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("paid")
+  const [billDiscount, setBillDiscount] = useState("")
+  const [amountPaid, setAmountPaid] = useState("")
+  const [dueReminderAt, setDueReminderAt] = useState("")
+  const [dueNotes, setDueNotes] = useState("")
+
+  useEffect(() => {
+    let mounted = true
+    getSession().then((session) => {
+      if (!mounted) return
+      setOperatorRole(((session?.user as any)?.role as string | undefined) ?? null)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const { data: catalog = [], isLoading: loadingCatalog } = useQuery({
     queryKey: ["pos-catalog", search],
@@ -140,23 +190,11 @@ export default function POSPage() {
     return new Map(cart.map((line) => [line.medicine.id, line.quantity]))
   }, [cart])
 
-  const subtotal = cart.reduce(
-    (sum, line) => sum + toAmount(line.medicine.selling_price) * line.quantity,
-    0
-  )
-
-  const tax = cart.reduce((sum, line) => {
-    const lineAmount = toAmount(line.medicine.selling_price) * line.quantity
-    return sum + (lineAmount * toAmount(line.medicine.gst_rate)) / 100
-  }, 0)
-
-  const grandTotal = subtotal + tax
-
   const todayDate = new Date().toDateString()
   const todayOrders = recentOrders.filter(
     (o) => new Date(o.created_at).toDateString() === todayDate
   )
-  const todayRevenue = todayOrders.reduce((sum, o) => sum + toAmount(o.total_amount), 0)
+  const todayRevenue = todayOrders.reduce((sum, o) => sum + orderPayable(o), 0)
 
   const addToCart = (medicine: Medicine) => {
     const stock = Number(medicine.stock_available ?? 0)
@@ -171,7 +209,7 @@ export default function POSPage() {
 
     setCart((current) => {
       const existing = current.find((line) => line.medicine.id === medicine.id)
-      if (!existing) return [...current, { medicine, quantity: 1 }]
+      if (!existing) return [...current, { medicine, quantity: 1, discount: "" }]
 
       if (existing.quantity >= stock) {
         toast({
@@ -211,6 +249,55 @@ export default function POSPage() {
     )
   }
 
+  const updateLineDiscount = (medicineId: string, value: string) => {
+    setCart((current) =>
+      current.map((line) =>
+        line.medicine.id === medicineId ? { ...line, discount: value } : line
+      )
+    )
+  }
+
+  const billMath = useMemo(() => {
+    const lines = cart.map((line) => {
+      const price = toAmount(line.medicine.selling_price)
+      const gross = price * line.quantity
+      const discount = clampDiscount(toAmount(line.discount), gross)
+      const taxable = gross - discount
+      const gst = (taxable * toAmount(line.medicine.gst_rate)) / 100
+      return { ...line, gross, discount, taxable, gst, total: taxable + gst }
+    })
+    const grossSubtotal = lines.reduce((sum, line) => sum + line.gross, 0)
+    const itemDiscount = lines.reduce((sum, line) => sum + line.discount, 0)
+    const taxableSubtotal = lines.reduce((sum, line) => sum + line.taxable, 0)
+    const taxTotal = lines.reduce((sum, line) => sum + line.gst, 0)
+    const billDiscountValue = clampDiscount(
+      toAmount(billDiscount),
+      taxableSubtotal + taxTotal
+    )
+    const totalDiscount = itemDiscount + billDiscountValue
+    const payable = Math.max(taxableSubtotal + taxTotal - billDiscountValue, 0)
+    const collected =
+      paymentStatus === "paid"
+        ? payable
+        : paymentStatus === "due"
+          ? 0
+          : clampDiscount(toAmount(amountPaid), payable)
+    const due = Math.max(payable - collected, 0)
+
+    return {
+      lines,
+      grossSubtotal,
+      itemDiscount,
+      taxableSubtotal,
+      taxTotal,
+      billDiscountValue,
+      totalDiscount,
+      payable,
+      collected,
+      due,
+    }
+  }, [amountPaid, billDiscount, cart, paymentStatus])
+
   const downloadInvoice = (orderId: string) => {
     openBackendFile(`/orders/${orderId}/invoice.pdf`).catch((error) =>
       toast({
@@ -237,15 +324,21 @@ export default function POSPage() {
           doctor_registration: optionalText(doctorRegistration),
           prescription_notes: optionalText(prescriptionNotes),
           payment_method: paymentMethod,
+          payment_status: paymentStatus,
+          bill_discount_amount: billMath.billDiscountValue.toFixed(2),
+          amount_paid: billMath.collected.toFixed(2),
+          due_reminder_at: toLocalInputIso(dueReminderAt),
+          due_notes: optionalText(dueNotes),
         }),
       })
 
-      for (const line of cart) {
+      for (const line of billMath.lines) {
         await clientFetch(`/orders/${order.id}/items`, {
           method: "POST",
           body: JSON.stringify({
             medicine_id: line.medicine.id,
             quantity: line.quantity,
+            discount_amount: line.discount.toFixed(2),
           }),
         })
       }
@@ -257,9 +350,11 @@ export default function POSPage() {
       setLastInvoiceOrderId(order.id)
       toast({
         title: "Sale completed",
-        description: `Order ${order.id.slice(0, 8)} billed for ₹${toAmount(
-          completed.total_amount
-        ).toFixed(2)} + tax. PDF invoice ready.`,
+        description: `Order ${order.id.slice(0, 8)} billed for ₹${(
+          toAmount(completed.total_amount) +
+          toAmount(completed.tax_amount) -
+          toAmount(completed.bill_discount_amount)
+        ).toFixed(2)}. Due: ₹${toAmount(completed.due_amount).toFixed(2)}. PDF invoice ready.`,
       })
 
       setCart([])
@@ -270,6 +365,11 @@ export default function POSPage() {
       setDoctorRegistration("")
       setPrescriptionNotes("")
       setPaymentMethod("cash")
+      setPaymentStatus("paid")
+      setBillDiscount("")
+      setAmountPaid("")
+      setDueReminderAt("")
+      setDueNotes("")
 
       queryClient.invalidateQueries({ queryKey: ["pos-recent-orders"] })
       queryClient.invalidateQueries({ queryKey: ["pos-alerts"] })
@@ -305,16 +405,46 @@ export default function POSPage() {
               </h1>
             </div>
           </div>
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="hidden items-center gap-2 xl:flex">
+              <Badge variant="outline" className="rounded-full border-slate-200 bg-white px-3 py-1">
+                {catalog.length} SKUs
+              </Badge>
+              <Badge variant="outline" className="rounded-full border-slate-200 bg-white px-3 py-1">
+                {todayOrders.length} bills today
+              </Badge>
+              <Badge className="rounded-full bg-emerald-700 px-3 py-1 text-white hover:bg-emerald-700">
+                ₹{todayRevenue.toFixed(0)}
+              </Badge>
+            </div>
             <Badge variant="outline" className="rounded-full border-slate-200 bg-white px-3 py-1">
-              {catalog.length} SKUs
+              {operatorRole === "admin" ? "Admin" : "Staff"} session
             </Badge>
-            <Badge variant="outline" className="rounded-full border-slate-200 bg-white px-3 py-1">
-              {todayOrders.length} bills today
-            </Badge>
-            <Badge className="rounded-full bg-emerald-700 px-3 py-1 text-white hover:bg-emerald-700">
-              ₹{todayRevenue.toFixed(0)}
-            </Badge>
+            {operatorRole === "admin" && (
+              <Button asChild size="sm" variant="outline" className="rounded-full">
+                <Link href="/admin/dashboard">
+                  <LayoutDashboard className="mr-1.5 h-3.5 w-3.5" />
+                  Admin
+                </Link>
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+            >
+              <Repeat2 className="mr-1.5 h-3.5 w-3.5" />
+              Switch role
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-full bg-slate-950 text-white hover:bg-slate-800"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+            >
+              <LogOut className="mr-1.5 h-3.5 w-3.5" />
+              Logout
+            </Button>
           </div>
         </div>
       </header>
@@ -542,6 +672,59 @@ export default function POSPage() {
                     ))}
                   </div>
                 </div>
+                <div className="mt-3 rounded-2xl border border-emerald-100 bg-white p-2">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    Payment Status
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PAYMENT_STATUS_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setPaymentStatus(option.value)}
+                        className={`rounded-xl border px-2 py-2 text-left transition ${
+                          paymentStatus === option.value
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-950"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300"
+                        }`}
+                      >
+                        <span className="block text-xs font-black">{option.label}</span>
+                        <span className="block text-[10px] leading-tight text-muted-foreground">
+                          {option.help}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {paymentStatus === "partially_paid" && (
+                    <div className="mt-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={amountPaid}
+                        onChange={(event) => setAmountPaid(event.target.value)}
+                        placeholder="Amount collected now"
+                        className="h-9"
+                      />
+                    </div>
+                  )}
+                  {paymentStatus !== "paid" && (
+                    <div className="mt-2 grid gap-2">
+                      <Input
+                        type="datetime-local"
+                        value={dueReminderAt}
+                        onChange={(event) => setDueReminderAt(event.target.value)}
+                        className="h-9"
+                      />
+                      <Input
+                        value={dueNotes}
+                        onChange={(event) => setDueNotes(event.target.value)}
+                        placeholder="Reminder note, e.g. call before closing"
+                        className="h-9"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {cart.length === 0 ? (
@@ -552,8 +735,8 @@ export default function POSPage() {
                 </div>
               ) : (
                 <>
-                  <div className="max-h-[280px] space-y-2 overflow-auto pr-1">
-                    {cart.map((line) => (
+                  <div className="max-h-[320px] space-y-2 overflow-auto pr-1">
+                    {billMath.lines.map((line) => (
                       <div
                         key={line.medicine.id}
                         className="rounded-lg border bg-slate-50 p-3"
@@ -595,12 +778,32 @@ export default function POSPage() {
                               <Plus className="h-3 w-3" />
                             </Button>
                           </div>
-                          <p className="text-sm font-semibold">
-                            ₹
-                            {(
-                              toAmount(line.medicine.selling_price) * line.quantity
-                            ).toFixed(2)}
-                          </p>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold">
+                              ₹{line.total.toFixed(2)}
+                            </p>
+                            {line.discount > 0 && (
+                              <p className="text-[11px] font-medium text-emerald-700">
+                                -₹{line.discount.toFixed(2)} discount
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-[1fr_auto] items-center gap-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={cart.find((item) => item.medicine.id === line.medicine.id)?.discount ?? ""}
+                            onChange={(event) =>
+                              updateLineDiscount(line.medicine.id, event.target.value)
+                            }
+                            placeholder="Line discount"
+                            className="h-9 bg-white"
+                          />
+                          <span className="rounded-full bg-white px-2 py-1 text-[11px] text-muted-foreground">
+                            Gross ₹{line.gross.toFixed(2)}
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -608,23 +811,60 @@ export default function POSPage() {
 
                   <div className="rounded-2xl bg-gradient-to-br from-slate-950 to-emerald-950 p-4 text-slate-100 shadow-xl">
                     <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-slate-300">Subtotal</span>
-                      <span>₹{subtotal.toFixed(2)}</span>
+                      <span className="text-slate-300">Gross subtotal</span>
+                      <span>₹{billMath.grossSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">Item discounts</span>
+                      <span className="text-emerald-200">-₹{billMath.itemDiscount.toFixed(2)}</span>
+                    </div>
+                    <div className="mb-2 grid grid-cols-[1fr_120px] items-center gap-3 text-sm">
+                      <span className="text-slate-300">Bill discount</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={billDiscount}
+                        onChange={(event) => setBillDiscount(event.target.value)}
+                        placeholder="₹0"
+                        className="h-8 border-white/10 bg-white/10 text-right text-white placeholder:text-slate-400"
+                      />
+                    </div>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">Taxable subtotal</span>
+                      <span>₹{billMath.taxableSubtotal.toFixed(2)}</span>
                     </div>
                     <div className="mb-2 flex items-center justify-between text-sm">
                       <span className="text-slate-300">GST</span>
-                      <span>₹{tax.toFixed(2)}</span>
+                      <span>₹{billMath.taxTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">Paid now</span>
+                      <span>₹{billMath.collected.toFixed(2)}</span>
+                    </div>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-300">Due</span>
+                      <span className={billMath.due > 0 ? "font-bold text-amber-200" : ""}>
+                        ₹{billMath.due.toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-700 pt-2 text-base font-semibold">
                       <span>Total Payable</span>
-                      <span>₹{grandTotal.toFixed(2)}</span>
+                      <span>₹{billMath.payable.toFixed(2)}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => setCart([])}
+                      onClick={() => {
+                        setCart([])
+                        setBillDiscount("")
+                        setAmountPaid("")
+                        setPaymentStatus("paid")
+                        setDueReminderAt("")
+                        setDueNotes("")
+                      }}
                       disabled={completing}
                     >
                       Clear Bill
@@ -725,14 +965,26 @@ export default function POSPage() {
                         <Badge variant="outline" className="uppercase">
                           {order.payment_method || "cash"}
                         </Badge>
+                        {order.payment_status && (
+                          <Badge
+                            className={
+                              order.payment_status === "paid"
+                                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+                                : "bg-amber-50 text-amber-700 hover:bg-amber-50"
+                            }
+                          >
+                            {order.payment_status.replace("_", " ")}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="font-semibold">
-                            ₹
-                            {(
-                              toAmount(order.total_amount) + toAmount(order.tax_amount)
-                            ).toFixed(2)}
+                            ₹{orderPayable(order).toFixed(2)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Discount ₹{toAmount(order.discount_amount).toFixed(2)} · Due ₹
+                            {toAmount(order.due_amount).toFixed(2)}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(order.created_at).toLocaleDateString("en-IN")} ·{" "}
@@ -756,53 +1008,6 @@ export default function POSPage() {
                   ))}
                 </ul>
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-3xl border-slate-200 bg-slate-950 text-white shadow-sm">
-            <CardContent className="p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
-                    Staff Session
-                  </p>
-                  <p className="text-sm font-semibold">Operator controls</p>
-                </div>
-                <Badge className="bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/15">
-                  POS
-                </Badge>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <Button
-                  asChild
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1.5 rounded-xl"
-                >
-                  <Link href="/admin/dashboard">
-                    <LayoutDashboard className="h-3.5 w-3.5" />
-                    Admin
-                  </Link>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1.5 rounded-xl"
-                  onClick={() => signOut({ callbackUrl: "/login" })}
-                >
-                  <Repeat2 className="h-3.5 w-3.5" />
-                  Switch
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 rounded-xl border-white/15 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Logout
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </aside>

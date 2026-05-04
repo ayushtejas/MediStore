@@ -26,6 +26,8 @@ class OrderStatus(str, enum.Enum):
 class PaymentStatus(str, enum.Enum):
     pending = "pending"
     paid = "paid"
+    due = "due"
+    partially_paid = "partially_paid"
     failed = "failed"
 
 
@@ -70,6 +72,25 @@ class Order(Base):
     payment_method: Mapped[str] = mapped_column(
         String, nullable=False, default=PaymentMethod.cash.value, server_default=PaymentMethod.cash.value
     )
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
+    amount_paid: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
+    due_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
+    payment_status: Mapped[str] = mapped_column(
+        String, nullable=False, default=PaymentStatus.paid.value, server_default=PaymentStatus.paid.value
+    )
+    due_reminder_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    due_notes: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -97,6 +118,9 @@ class OrderItem(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
 
     order: Mapped["Order"] = relationship("Order", back_populates="items")
     medicine: Mapped["Medicine"] = relationship("Medicine")
