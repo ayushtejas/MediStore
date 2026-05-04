@@ -3,6 +3,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
+from ..core.time import app_now
 
 
 class StoreProfile(Base):
@@ -19,7 +20,7 @@ class StoreProfile(Base):
     drug_license: Mapped[str | None] = mapped_column(String, nullable=True, default="MH-MED-2026")
     footer_note: Mapped[str] = mapped_column(String, nullable=False, default="Thank you for choosing MedStore.")
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), onupdate=app_now, nullable=False
     )
 
 
@@ -32,5 +33,5 @@ class AppLicence(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_key_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), onupdate=app_now, nullable=False
     )

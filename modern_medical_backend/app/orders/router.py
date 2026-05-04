@@ -1,7 +1,7 @@
 import base64
 import binascii
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from html import escape
 
 from ..core.database import get_db
 from ..core.security import get_current_user, require_role
+from ..core.time import app_now
 from .models import (
     Order,
     OrderItem,
@@ -1249,7 +1250,7 @@ async def review_prescription(
 
     online.prescription_status = body.status.value
     online.prescription_review_notes = body.notes
-    online.prescription_reviewed_at = datetime.now(timezone.utc)
+    online.prescription_reviewed_at = app_now()
     online.prescription_reviewed_by = uuid.UUID(current_user["sub"])
 
     if body.status == PrescriptionReviewStatus.rejected:

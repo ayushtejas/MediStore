@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import Enum as SAEnum
 from ..core.database import Base
+from ..core.time import app_now
 import enum
 
 
@@ -92,7 +93,7 @@ class Order(Base):
     )
     due_notes: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), nullable=False
     )
 
     items: Mapped[list["OrderItem"]] = relationship("OrderItem", back_populates="order")

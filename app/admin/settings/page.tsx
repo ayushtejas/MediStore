@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 import { useToast } from "@/hooks/use-toast"
 
 interface StoreProfile {
@@ -76,6 +77,8 @@ export default function SettingsPage() {
   const [selectedUserId, setSelectedUserId] = useState("")
   const [userForm, setUserForm] = useState({ name: "", email: "", phone: "", role: "staff", password: "" })
   const [newUserForm, setNewUserForm] = useState({ name: "", email: "", phone: "", role: "staff", password: "" })
+  const [usersPage, setUsersPage] = useState(1)
+  const [usersPageSize, setUsersPageSize] = useState(10)
 
   const { data: profile } = useQuery({
     queryKey: ["settings-store-profile"],
@@ -107,6 +110,10 @@ export default function SettingsPage() {
       password: "",
     })
   }, [selectedUserId, users])
+
+  useEffect(() => {
+    setUsersPage((current) => Math.min(current, pageCount(users.length, usersPageSize)))
+  }, [users.length, usersPageSize])
 
   const saveProfile = useMutation({
     mutationFn: () => clientFetch("/settings/store-profile", { method: "PATCH", body: JSON.stringify(profileForm) }),
@@ -157,6 +164,7 @@ export default function SettingsPage() {
     ["drug_license", "Drug Licence", "Drug licence number"],
     ["footer_note", "Bill Footer", "Thank you note"],
   ]
+  const paginatedUsers = pageItems(users, usersPage, usersPageSize)
 
   return (
     <div className="admin-page">
@@ -292,7 +300,7 @@ export default function SettingsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
+                  {paginatedUsers.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell>{user.name}</TableCell>
                       <TableCell>{user.email}</TableCell>
@@ -306,6 +314,13 @@ export default function SettingsPage() {
                   ))}
                 </TableBody>
               </Table>
+              <PaginationControls
+                page={usersPage}
+                pageSize={usersPageSize}
+                totalItems={users.length}
+                onPageChange={setUsersPage}
+                onPageSizeChange={setUsersPageSize}
+              />
             </div>
 
             {selectedUserId ? (

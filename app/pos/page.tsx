@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 import {
   FALLBACK_STORE_PROFILE,
   storeInitials,
@@ -95,11 +96,11 @@ function clampDiscount(value: number, max: number): number {
   return Math.min(value, Math.max(max, 0))
 }
 
-function toLocalInputIso(value: string): string | null {
+function toLocalDateTime(value: string): string | null {
   if (!value) return null
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toISOString()
+  return `${value}:00`
 }
 
 const PAYMENT_OPTIONS: { label: string; value: PaymentMethod }[] = [
@@ -140,6 +141,8 @@ export default function POSPage() {
   const [amountPaid, setAmountPaid] = useState("")
   const [dueReminderAt, setDueReminderAt] = useState("")
   const [dueNotes, setDueNotes] = useState("")
+  const [recentBillsPage, setRecentBillsPage] = useState(1)
+  const [recentBillsPageSize, setRecentBillsPageSize] = useState(10)
 
   useEffect(() => {
     let mounted = true
@@ -203,6 +206,11 @@ export default function POSPage() {
     (o) => new Date(o.created_at).toDateString() === todayDate
   )
   const todayRevenue = todayOrders.reduce((sum, o) => sum + orderPayable(o), 0)
+  const paginatedRecentOrders = pageItems(recentOrders, recentBillsPage, recentBillsPageSize)
+
+  useEffect(() => {
+    setRecentBillsPage((current) => Math.min(current, pageCount(recentOrders.length, recentBillsPageSize)))
+  }, [recentOrders.length, recentBillsPageSize])
 
   const addToCart = (medicine: Medicine) => {
     const stock = Number(medicine.stock_available ?? 0)
@@ -335,7 +343,7 @@ export default function POSPage() {
           payment_status: paymentStatus,
           bill_discount_amount: billMath.billDiscountValue.toFixed(2),
           amount_paid: billMath.collected.toFixed(2),
-          due_reminder_at: toLocalInputIso(dueReminderAt),
+          due_reminder_at: toLocalDateTime(dueReminderAt),
           due_notes: optionalText(dueNotes),
         }),
       })
@@ -955,7 +963,7 @@ export default function POSPage() {
                 </p>
               ) : (
                 <ul className="max-h-[420px] space-y-2 overflow-auto pr-1">
-                  {recentOrders.slice(0, 12).map((order) => (
+                  {paginatedRecentOrders.map((order) => (
                     <li
                       key={order.id}
                       className="rounded-2xl border border-emerald-100 bg-white p-3 text-sm shadow-sm"
@@ -1017,6 +1025,15 @@ export default function POSPage() {
                 </ul>
               )}
             </CardContent>
+            {recentOrders.length > 0 && (
+              <PaginationControls
+                page={recentBillsPage}
+                pageSize={recentBillsPageSize}
+                totalItems={recentOrders.length}
+                onPageChange={setRecentBillsPage}
+                onPageSizeChange={setRecentBillsPageSize}
+              />
+            )}
           </Card>
         </aside>
       </main>

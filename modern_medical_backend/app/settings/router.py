@@ -1,6 +1,6 @@
 import hashlib
 import hmac
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.database import get_db
 from ..core.security import require_role
+from ..core.time import APP_TIMEZONE, app_now
 from .schemas import (
     LicenceActivate,
     LicenceActivateOut,
@@ -21,20 +22,20 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return app_now()
 
 
-def _as_utc(value: datetime | None) -> datetime | None:
+def _as_app_time(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=APP_TIMEZONE)
+    return value.astimezone(APP_TIMEZONE)
 
 
 def _licence_status_response(licence) -> LicenceStatus:
-    expires_at = _as_utc(licence.expires_at)
-    activated_at = _as_utc(licence.activated_at)
+    expires_at = _as_app_time(licence.expires_at)
+    activated_at = _as_app_time(licence.activated_at)
     expired = bool(expires_at and expires_at <= _utc_now())
     active = bool(licence.activated and expires_at and not expired)
     return LicenceStatus(

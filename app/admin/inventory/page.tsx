@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -46,6 +46,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 import { useToast } from "@/hooks/use-toast"
 
 interface MedicineForm {
@@ -339,6 +340,8 @@ export default function InventoryPage() {
   const [form, setForm] = useState<MedicineForm>(INITIAL_MEDICINE_FORM)
   const [editForm, setEditForm] = useState<MedicineForm>(INITIAL_MEDICINE_FORM)
   const [batchForm, setBatchForm] = useState<BatchForm>(INITIAL_BATCH_FORM)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const { data: medicines = [], isLoading } = useQuery({
     queryKey: ["medicines", search],
@@ -383,6 +386,15 @@ export default function InventoryPage() {
         : [],
     [inventory, selectedMedicine]
   )
+  const paginatedMedicines = pageItems(medicines, page, pageSize)
+
+  useEffect(() => {
+    setPage(1)
+  }, [search])
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount(medicines.length, pageSize)))
+  }, [medicines.length, pageSize])
 
   const invalidateInventory = () => {
     qc.invalidateQueries({ queryKey: ["medicines"] })
@@ -939,7 +951,7 @@ export default function InventoryPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                medicines.map((med: any) => {
+                paginatedMedicines.map((med: any) => {
                   const stock = Number(med.stock_available ?? 0)
                   const threshold = Number(med.low_stock_threshold ?? 0)
                   const status =
@@ -995,6 +1007,13 @@ export default function InventoryPage() {
               )}
             </TableBody>
           </Table>
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            totalItems={medicines.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
 
         <div className="space-y-4">

@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from ..core.database import Base
+from ..core.time import app_now
 
 
 class Supplier(Base):
@@ -51,7 +52,7 @@ class Medicine(Base):
     )
     low_stock_threshold: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), nullable=False
     )
 
     batches: Mapped[list["Inventory"]] = relationship(
@@ -77,7 +78,7 @@ class Inventory(Base):
         UUID(as_uuid=True), ForeignKey("suppliers.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), nullable=False
     )
 
     medicine: Mapped["Medicine"] = relationship("Medicine", back_populates="batches")
@@ -109,7 +110,7 @@ class InventoryLog(Base):
         UUID(as_uuid=True), ForeignKey("orders.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), nullable=False
     )
 
     batch: Mapped["Inventory"] = relationship(

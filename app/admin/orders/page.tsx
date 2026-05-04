@@ -37,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 
 const STATUS_OPTIONS = [
   "pending",
@@ -90,7 +91,7 @@ function fromDateTimeLocal(value: string) {
   if (!value) return null
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toISOString()
+  return `${value}:00`
 }
 
 export default function OrdersPage() {
@@ -103,6 +104,8 @@ export default function OrdersPage() {
   const [paymentEditAmount, setPaymentEditAmount] = useState("")
   const [paymentEditReminder, setPaymentEditReminder] = useState("")
   const [paymentEditNotes, setPaymentEditNotes] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ["orders"],
@@ -205,6 +208,14 @@ export default function OrdersPage() {
     setPaymentEditNotes(selectedOrder.due_notes || "")
   }, [selectedOrder])
 
+  useEffect(() => {
+    setPage(1)
+  }, [activeFilter, query])
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount(filteredOrders.length, pageSize)))
+  }, [filteredOrders.length, pageSize])
+
   const stats = [
     {
       label: "Total Revenue",
@@ -250,6 +261,7 @@ export default function OrdersPage() {
       count: orders.filter((order: any) => order.status === "delivered").length,
     },
   ]
+  const paginatedOrders = pageItems(filteredOrders, page, pageSize)
 
   return (
     <div className="admin-page">
@@ -347,7 +359,7 @@ export default function OrdersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredOrders.map((order: any) => (
+              paginatedOrders.map((order: any) => (
                 <TableRow
                   key={order.id}
                   className="cursor-pointer hover:bg-emerald-50/60"
@@ -441,6 +453,13 @@ export default function OrdersPage() {
             )}
           </TableBody>
         </Table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          totalItems={filteredOrders.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
 
       <Dialog

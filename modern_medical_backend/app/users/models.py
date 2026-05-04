@@ -3,6 +3,7 @@ from sqlalchemy import String, DateTime, Enum, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from ..core.database import Base
+from ..core.time import app_now
 import enum
 
 
@@ -27,5 +28,5 @@ class User(Base):
     )
     hashed_pw: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=app_now, server_default=func.now(), nullable=False
     )

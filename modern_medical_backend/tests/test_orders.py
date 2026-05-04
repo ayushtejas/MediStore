@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import insert, select
 
 from app.core.security import hash_password, create_access_token
+from app.core.time import APP_TIMEZONE, app_now
 from app.inventory.models import Inventory, Medicine
 from app.orders.models import Order, OrderItem, OrderStatus, OrderType
 from app.orders.router import (
@@ -34,6 +35,20 @@ async def _make_user(db, role: str = "staff"):
     await db.commit()
     token = create_access_token({"sub": str(uid), "role": role, "email": email})
     return uid, token
+
+
+@pytest.mark.asyncio
+async def test_order_created_at_uses_ist_app_time(db):
+    order = Order(
+        type=OrderType.offline,
+        status=OrderStatus.pending,
+    )
+    db.add(order)
+    await db.flush()
+
+    assert order.created_at.utcoffset() == app_now().utcoffset()
+    assert order.created_at.tzinfo is not None
+    assert order.created_at.tzinfo.key == APP_TIMEZONE.key
 
 
 def test_invoice_html_uses_print_stable_report_layout():

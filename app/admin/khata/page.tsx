@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -9,11 +9,13 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Eye,
   IndianRupee,
   PackageMinus,
   ReceiptText,
   Search,
   ShieldAlert,
+  Trash2,
   WalletCards,
 } from "lucide-react"
 
@@ -37,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 
 function amount(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0)
@@ -73,16 +76,82 @@ function prettyDate(value: string | null | undefined) {
 
 const FILTERS = [
   { key: "all", label: "All notifications" },
+  { key: "unread", label: "Unread" },
   { key: "payment", label: "Payment reminders" },
   { key: "inventory", label: "Inventory alerts" },
   { key: "due_now", label: "Due now" },
   { key: "upcoming", label: "Upcoming" },
 ]
 
+const ALERT_STATE_KEY = "medstore:khata-alert-state:v1"
+
+type AlertState = {
+  read: Record<string, string>
+  deleted: Record<string, string>
+}
+
+const EMPTY_ALERT_STATE: AlertState = { read: {}, deleted: {} }
+
+function loadAlertState(): AlertState {
+  if (typeof window === "undefined") return EMPTY_ALERT_STATE
+  try {
+    const raw = window.localStorage.getItem(ALERT_STATE_KEY)
+    if (!raw) return EMPTY_ALERT_STATE
+    const parsed = JSON.parse(raw)
+    return {
+      read: parsed?.read && typeof parsed.read === "object" ? parsed.read : {},
+      deleted: parsed?.deleted && typeof parsed.deleted === "object" ? parsed.deleted : {},
+    }
+  } catch {
+    return EMPTY_ALERT_STATE
+  }
+}
+
+function notificationReadLabel(isRead: boolean) {
+  return isRead ? "Read" : "Unread"
+}
+
 export default function KhataAlertsPage() {
   const [filter, setFilter] = useState("all")
   const [query, setQuery] = useState("")
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null)
+  const [ledgerPage, setLedgerPage] = useState(1)
+  const [ledgerPageSize, setLedgerPageSize] = useState(20)
+  const [alertState, setAlertState] = useState<AlertState>(EMPTY_ALERT_STATE)
+
+  useEffect(() => {
+    setAlertState(loadAlertState())
+  }, [])
+
+  function updateAlertState(updater: (current: AlertState) => AlertState) {
+    setAlertState((current) => {
+      const next = updater(current)
+      window.localStorage.setItem(ALERT_STATE_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+
+  function markAlertRead(notificationId: string) {
+    updateAlertState((current) => ({
+      ...current,
+      read: { ...current.read, [notificationId]: new Date().toISOString() },
+    }))
+  }
+
+  function deleteAlert(notificationId: string) {
+    updateAlertState((current) => ({
+      read: { ...current.read, [notificationId]: new Date().toISOString() },
+      deleted: { ...current.deleted, [notificationId]: new Date().toISOString() },
+    }))
+    setSelectedNotification((current: any | null) =>
+      current?.id === notificationId ? null : current
+    )
+  }
+
+  function openNotification(notification: any) {
+    markAlertRead(notification.id)
+    setSelectedNotification(notification)
+  }
 
   const { data: orders = [], isLoading: loadingOrders } = useQuery({
     queryKey: ["khata-orders"],
@@ -179,13 +248,18 @@ export default function KhataAlertsPage() {
       (a, b) => a.sortAt - b.sortAt
     )
     return all.filter((notification) => {
+      if (alertState.deleted[notification.id]) return false
+      if (filter === "unread" && alertState.read[notification.id]) return false
       if (filter === "payment" && notification.type !== "payment") return false
       if (filter === "inventory" && notification.type !== "inventory") return false
       if (filter === "due_now" && notification.state !== "due_now") return false
       if (filter === "upcoming" && notification.state !== "upcoming") return false
       return true
-    })
-  }, [filter, inventoryNotifications, paymentNotifications])
+    }).map((notification) => ({
+      ...notification,
+      isRead: Boolean(alertState.read[notification.id]),
+    }))
+  }, [alertState.deleted, alertState.read, filter, inventoryNotifications, paymentNotifications])
 
   const searchedDueOrders = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -205,8 +279,17 @@ export default function KhataAlertsPage() {
 
   const totalDue = dueOrders.reduce((sum: number, order: any) => sum + amount(order.due_amount), 0)
   const totalPaid = orders.reduce((sum: number, order: any) => sum + amount(order.amount_paid), 0)
-  const lowStockCount = alerts?.low_stock_alerts?.length ?? 0
-  const expiryCount = alerts?.expiry_alerts?.length ?? 0
+  const visibleLowStockAlerts = (alerts?.low_stock_alerts ?? []).filter(
+    (item: any) => !alertState.deleted[`low-${item.inventory_id}`]
+  )
+  const visibleExpiryAlerts = (alerts?.expiry_alerts ?? []).filter(
+    (item: any) => !alertState.deleted[`expiry-${item.inventory_id || item.id}`]
+  )
+  const lowStockCount = visibleLowStockAlerts.length
+  const expiryCount = visibleExpiryAlerts.length
+  const unreadCount = [...paymentNotifications, ...inventoryNotifications].filter(
+    (notification) => !alertState.deleted[notification.id] && !alertState.read[notification.id]
+  ).length
 
   const statCards = [
     {
@@ -238,6 +321,15 @@ export default function KhataAlertsPage() {
       tone: "bg-orange-50 text-orange-700",
     },
   ]
+  const paginatedDueOrders = pageItems(searchedDueOrders, ledgerPage, ledgerPageSize)
+
+  useEffect(() => {
+    setLedgerPage(1)
+  }, [query])
+
+  useEffect(() => {
+    setLedgerPage((current) => Math.min(current, pageCount(searchedDueOrders.length, ledgerPageSize)))
+  }, [searchedDueOrders.length, ledgerPageSize])
 
   return (
     <div className="admin-page">
@@ -255,6 +347,9 @@ export default function KhataAlertsPage() {
           <div className="flex flex-wrap gap-2">
             <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100">
               {reminderBuckets.dueNow.length} reminders due now
+            </Badge>
+            <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100">
+              {unreadCount} unread alerts
             </Badge>
             <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">
               {lowStockCount} stock thresholds crossed
@@ -312,11 +407,11 @@ export default function KhataAlertsPage() {
 
               <div className="space-y-3">
                 {notifications.map((notification) => (
-                  <button
+                  <div
                     key={notification.id}
-                    type="button"
-                    onClick={() => setSelectedNotification(notification)}
-                    className={`w-full rounded-3xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${notification.tone}`}
+                    className={`w-full rounded-3xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${
+                      notification.isRead ? "border-slate-200 bg-white text-slate-700 opacity-80" : notification.tone
+                    }`}
                   >
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 rounded-2xl bg-white/70 p-2">
@@ -328,16 +423,54 @@ export default function KhataAlertsPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-semibold">{notification.title}</p>
-                          <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wide">
-                            View details
-                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {!notification.isRead && (
+                              <span className="h-2.5 w-2.5 rounded-full bg-cyan-500 shadow-[0_0_0_4px_rgba(6,182,212,0.14)]" />
+                            )}
+                            <p className="font-semibold">{notification.title}</p>
+                            <Badge className={notification.isRead ? "bg-slate-100 text-slate-700 hover:bg-slate-100" : "bg-white/80 text-slate-900 hover:bg-white/80"}>
+                              {notificationReadLabel(notification.isRead)}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 rounded-full bg-white/80 px-3 text-xs text-slate-900 hover:bg-white"
+                              onClick={() => openNotification(notification)}
+                            >
+                              <Eye className="mr-1.5 h-3.5 w-3.5" />
+                              View
+                            </Button>
+                            {!notification.isRead && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 rounded-full bg-white/70 px-3 text-xs"
+                                onClick={() => markAlertRead(notification.id)}
+                              >
+                                Read
+                              </Button>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-full border-rose-200 bg-white/70 px-3 text-xs text-rose-700 hover:bg-rose-50"
+                              onClick={() => deleteAlert(notification.id)}
+                            >
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              Delete
+                            </Button>
+                          </div>
                         </div>
                         <p className="mt-1 text-sm opacity-90">{notification.detail}</p>
                         <p className="mt-1 text-xs opacity-75">{notification.meta}</p>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
                 {notifications.length === 0 && (
                   <div className="rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/40 p-8 text-center">
@@ -400,7 +533,7 @@ export default function KhataAlertsPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    searchedDueOrders.map((order: any) => {
+                    paginatedDueOrders.map((order: any) => {
                       const state = dueReminderState(order)
                       return (
                         <TableRow key={order.id}>
@@ -448,6 +581,13 @@ export default function KhataAlertsPage() {
                 </TableBody>
               </Table>
             </div>
+            <PaginationControls
+              page={ledgerPage}
+              pageSize={ledgerPageSize}
+              totalItems={searchedDueOrders.length}
+              onPageChange={setLedgerPage}
+              onPageSizeChange={setLedgerPageSize}
+            />
           </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -459,20 +599,37 @@ export default function KhataAlertsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {(alerts?.low_stock_alerts ?? []).slice(0, 8).map((item: any) => (
-                  <div key={item.inventory_id} className="rounded-2xl border border-orange-100 bg-orange-50/60 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-950">{item.medicine_name}</p>
-                        <p className="text-xs text-muted-foreground">Batch {item.batch_number}</p>
+                {visibleLowStockAlerts.slice(0, 8).map((item: any) => {
+                  const alertId = `low-${item.inventory_id}`
+                  const isRead = Boolean(alertState.read[alertId])
+                  return (
+                    <div key={item.inventory_id} className={`rounded-2xl border p-3 ${isRead ? "border-slate-200 bg-white" : "border-orange-100 bg-orange-50/60"}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-slate-950">{item.medicine_name}</p>
+                          <p className="text-xs text-muted-foreground">Batch {item.batch_number}</p>
+                          <Badge variant="outline" className="mt-2 text-[10px]">
+                            {notificationReadLabel(isRead)}
+                          </Badge>
+                        </div>
+                        <Badge variant="destructive">{item.quantity_available} left</Badge>
                       </div>
-                      <Badge variant="destructive">{item.quantity_available} left</Badge>
+                      <p className="mt-2 text-xs font-medium text-orange-800">
+                        Reorder threshold: {item.low_stock_threshold}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {!isRead && (
+                          <Button size="sm" variant="outline" className="h-8 rounded-full bg-white text-xs" onClick={() => markAlertRead(alertId)}>
+                            Mark read
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="h-8 rounded-full border-rose-200 bg-white text-xs text-rose-700 hover:bg-rose-50" onClick={() => deleteAlert(alertId)}>
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                    <p className="mt-2 text-xs font-medium text-orange-800">
-                      Reorder threshold: {item.low_stock_threshold}
-                    </p>
-                  </div>
-                ))}
+                  )
+                })}
                 {lowStockCount === 0 && (
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     No stock thresholds are currently crossed.
@@ -489,19 +646,36 @@ export default function KhataAlertsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {(alerts?.expiry_alerts ?? []).slice(0, 8).map((item: any) => (
-                  <div key={item.inventory_id || item.id} className="rounded-2xl border border-yellow-100 bg-yellow-50/70 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-950">{item.medicine_name || "Medicine batch"}</p>
-                        <p className="text-xs text-muted-foreground">Batch {item.batch_number}</p>
+                {visibleExpiryAlerts.slice(0, 8).map((item: any) => {
+                  const alertId = `expiry-${item.inventory_id || item.id}`
+                  const isRead = Boolean(alertState.read[alertId])
+                  return (
+                    <div key={item.inventory_id || item.id} className={`rounded-2xl border p-3 ${isRead ? "border-slate-200 bg-white" : "border-yellow-100 bg-yellow-50/70"}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-slate-950">{item.medicine_name || "Medicine batch"}</p>
+                          <p className="text-xs text-muted-foreground">Batch {item.batch_number}</p>
+                          <Badge variant="outline" className="mt-2 text-[10px]">
+                            {notificationReadLabel(isRead)}
+                          </Badge>
+                        </div>
+                        <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+                          {item.expiry_date}
+                        </Badge>
                       </div>
-                      <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
-                        {item.expiry_date}
-                      </Badge>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {!isRead && (
+                          <Button size="sm" variant="outline" className="h-8 rounded-full bg-white text-xs" onClick={() => markAlertRead(alertId)}>
+                            Mark read
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="h-8 rounded-full border-rose-200 bg-white text-xs text-rose-700 hover:bg-rose-50" onClick={() => deleteAlert(alertId)}>
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {expiryCount === 0 && (
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     No batches are expiring in the alert window.
@@ -636,6 +810,18 @@ export default function KhataAlertsPage() {
               )}
 
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                {!alertState.read[selectedNotification.id] && (
+                  <Button variant="outline" onClick={() => markAlertRead(selectedNotification.id)}>
+                    Mark read
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                  onClick={() => deleteAlert(selectedNotification.id)}
+                >
+                  Delete alert
+                </Button>
                 <Button variant="outline" onClick={() => setSelectedNotification(null)}>
                   Close
                 </Button>

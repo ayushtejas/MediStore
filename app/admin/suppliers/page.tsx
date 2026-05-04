@@ -1,7 +1,7 @@
 "use client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { clientFetch } from "@/lib/api-client"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -23,6 +23,7 @@ import {
 import { Building2, Mail, Phone, Plus, Truck } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
+import { PaginationControls, pageCount, pageItems } from "@/components/ui/pagination-controls"
 
 interface SupplierForm {
   name: string
@@ -41,6 +42,8 @@ export default function SuppliersPage() {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<SupplierForm>(INITIAL_FORM)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ["suppliers"],
@@ -68,6 +71,11 @@ export default function SuppliersPage() {
     ["contact", "Contact Person"],
     ["email", "Email"],
   ]
+  const paginatedSuppliers = pageItems(suppliers, page, pageSize)
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount(suppliers.length, pageSize)))
+  }, [suppliers.length, pageSize])
 
   return (
     <div className="admin-page">
@@ -186,7 +194,7 @@ export default function SuppliersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              suppliers.map((s: any) => (
+              paginatedSuppliers.map((s: any) => (
                 <TableRow key={s.id} className="hover:bg-emerald-50/60">
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-3">
@@ -208,6 +216,13 @@ export default function SuppliersPage() {
             )}
           </TableBody>
         </Table>
+        <PaginationControls
+          page={page}
+          pageSize={pageSize}
+          totalItems={suppliers.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
     </div>
   )
